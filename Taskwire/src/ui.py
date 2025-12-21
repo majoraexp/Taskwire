@@ -169,8 +169,9 @@ class CircularGauge(QWidget):
                 if self.hover_section != 'free':
                     self.hover_section = 'free'
                     self.update()
-                free_gb = self.total_gb - self.used_gb
-                text_to_show = f"Free: {100-self.percent:.1f}% ({free_gb:.1f} GiB)"
+                free_gb = max(0.0, self.total_gb - self.used_gb)
+                free_pct = max(0.0, 100.0 - self.percent)
+                text_to_show = f"Free: {free_pct:.1f}% ({free_gb:.1f} GiB)"
             
             # Show Custom Tooltip
             if text_to_show:
