@@ -27,6 +27,8 @@
     *   **Fans:** Live RPM monitoring for system fans.
 *   **Process Manager:**
     *   Full list of running processes.
+    *   **Customizable Metrics:** Right-click headers to toggle columns and arrange metrics to your liking.
+    *   **Sortable Columns:** Click headers to sort by CPU, Memory, PID, or Name.
     *   **Normalized Memory:** Process memory metrics (Resident, Shared) are normalized to ensure they sum up exactly to the total system usage.
     *   **Swap Monitoring:** Tracks Swap usage per process.
     *   **Grouping:** Collapses multiple processes by name (e.g., "firefox (12)") for a cleaner view.
