@@ -32,7 +32,8 @@
     *   **Normalized Memory:** Process memory metrics (Resident, Shared) are normalized to ensure they sum up exactly to the total system usage.
     *   **Swap Monitoring:** Tracks Swap usage per process.
     *   **Grouping:** Collapses multiple processes by name (e.g., "firefox (12)") for a cleaner view.
-    *   Search and "End Task" functionality.
+    *   **Process Tree Management:** Kill entire process stacks from the grouped view or use "End Process Tree" in detailed view.
+    *   Search functionality.
 *   **Custom UI:** Built with PyQt6 using custom `QPainter` rendering for gauges, graphs, and icons (no image assets required, fully procedural).
 
 ## 📦 Installation
