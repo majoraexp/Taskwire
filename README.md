@@ -4,6 +4,8 @@
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue?style=flat-square&logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Linux-orange?style=flat-square&logo=linux&logoColor=white)
 
+> **⚠️ Disclaimer:** This is an AI "vibe coded" project, and my first attempt at making something useful with it.
+
 **Taskwire** is a modern, dark-themed system monitor for Linux, designed with a "Video Game HUD" aesthetic. It provides real-time monitoring of your system's performance with a visual style inspired by cyberpunk interfaces and modern desktop widgets.
 
 > **📥 [Download the latest standalone executable (No Python required)](https://github.com/majoraexp/Taskwire/releases)**
