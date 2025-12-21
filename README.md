@@ -82,4 +82,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to th
 
 ## 📄 License
 
-MIT License
+GNU General Public License v3.0
