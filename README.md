@@ -1,6 +1,7 @@
 # Taskwire
 
 ![License](https://img.shields.io/github/license/majoraexp/Taskwire?style=flat-square&color=blueviolet)
+![Release](https://img.shields.io/github/v/release/majoraexp/Taskwire?style=flat-square&color=orange)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue?style=flat-square&logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Linux-orange?style=flat-square&logo=linux&logoColor=white)
 
