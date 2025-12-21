@@ -131,6 +131,8 @@ class CircularGauge(QWidget):
         """
         self.percent = percent
         self.used_gb = used_gb
+        self.total_gb = total_gb
+        self.update()
     def mouseMoveEvent(self, event): # pylint: disable=C0103
         """
         Handles mouse movement events to detect hover on 'used' or 'free' sections
