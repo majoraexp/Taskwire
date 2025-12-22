@@ -20,7 +20,7 @@
 
 *   **HUD-Style Dashboard:** A cohesive, single-window interface with a Dracula-inspired dark theme and neon accents.
 *   **Live Monitoring:**
-    *   **CPU:** Overall usage, per-core utilization bars, and a 60s history graph.
+    *   **CPU:** Overall usage, per-core utilization bars with frequency (MHz/GHz) monitoring, and a 60s history graph.
     *   **Memory:** Interactive circular gauge showing Physical Memory (RAM) usage.
     *   **Disk:** 3D isometric drive icons for physical disks and a real-time **Read/Write Speed Graph**.
     *   **Network:** Real-time upload and download speeds.
@@ -30,7 +30,8 @@
     *   Full list of running processes.
     *   **Customizable Metrics:** Right-click headers to toggle columns and arrange metrics to your liking.
     *   **Sortable Columns:** Click headers to sort by CPU, Memory, PID, or Name.
-    *   **Normalized Memory:** Process memory metrics (Resident, Shared) are normalized to ensure they sum up exactly to the total system usage.
+    *   **Normalized Memory:** Process memory metrics (Resident, Shared) are dynamically scaled to match system total.
+    *   **Clean Visualization:** Simplified text-based view (no visual clutter) for easier reading of metrics.
     *   **Swap Monitoring:** Tracks Swap usage per process.
     *   **Grouping:** Collapses multiple processes by name (e.g., "firefox (12)") for a cleaner view.
     *   **Process Tree Management:** Kill entire process stacks from the grouped view or use "End Process Tree" in detailed view.

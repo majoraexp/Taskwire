@@ -99,7 +99,7 @@ class MainWindow(QMainWindow):
         self.worker_thread.started.connect(self.worker.start_monitoring)
         self.worker.cpu_update.connect(self.cpu_widget.update_data)
         # Connect History Graph
-        self.worker.cpu_update.connect(lambda overall, _: self.cpu_history.update_data(overall))
+        self.worker.cpu_update.connect(lambda overall, *_: self.cpu_history.update_data(overall))
         # Connect Top Panel
         self.worker.cpu_update.connect(self.top_panel.update_cpu)
         self.worker.gpu_update.connect(self.top_panel.update_gpu)

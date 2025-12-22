@@ -7,7 +7,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, QThread
 
 class SystemWorker(QObject):
     # Signals to update the UI
-    cpu_update = pyqtSignal(float, list) # Overall %, List of per-core %
+    cpu_update = pyqtSignal(float, list, list) # Overall %, List of per-core %, List of per-core freq
     memory_update = pyqtSignal(dict)     # Dictionary of memory stats (RAM + Swap)
     gpu_update = pyqtSignal(float)       # GPU Utilization %
     fan_update = pyqtSignal(dict)        # Fan speeds {label: rpm}
@@ -90,7 +90,16 @@ class SystemWorker(QObject):
                 else:
                     cpu_per_core.append(0.0)
             
-            self.cpu_update.emit(cpu_overall, cpu_per_core)
+            # CPU Frequency
+            cpu_freqs = []
+            try:
+                freqs = psutil.cpu_freq(percpu=True)
+                if freqs:
+                    cpu_freqs = [f.current for f in freqs]
+            except Exception:
+                pass
+            
+            self.cpu_update.emit(cpu_overall, cpu_per_core, cpu_freqs)
             
             # 2. Memory Stats (RAM + Swap)
             mem = psutil.virtual_memory()

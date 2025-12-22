@@ -10,7 +10,7 @@ from collections import deque
 from PyQt6.QtCore import Qt, QRectF, QSize, QPointF, QPoint, QEvent
 from PyQt6.QtGui import (
     QPainter, QColor, QPen, QFont, QPainterPath, QLinearGradient, 
-    QPolygonF, QBrush, QRadialGradient, QAction
+    QPolygonF, QBrush, QRadialGradient, QAction, QPalette
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
@@ -649,7 +649,7 @@ class CpuHistoryWidget(Card):
 
 class CpuWidget(Card):
     """
-    A widget to display CPU utilization per thread using progress bars.
+    A widget to display CPU utilization and frequency per thread using progress bars.
     """
     def __init__(self):
         """
@@ -660,53 +660,80 @@ class CpuWidget(Card):
         self.layout.addLayout(self.grid)
         self.bars = []
         
-    def update_data(self, overall, per_core):
+    def update_data(self, overall, per_core, freqs=None):
         """
-        Updates the CPU utilization bars for each core.
+        Updates the CPU utilization bars and frequency for each core.
 
         Args:
-            overall (float): Overall CPU utilization (not used directly here, but passed).
+            overall (float): Overall CPU utilization.
             per_core (list): A list of float values representing CPU utilization for each core.
+            freqs (list): A list of float values representing CPU frequency (MHz) for each core.
         """
+        if freqs is None: freqs = []
+        
         # Initialize bars if not created
         if not self.bars:
             for i, _ in enumerate(per_core):
                 label = QLabel(f"Core {i+1}")
+                label.setStyleSheet(f"color: {ModernTheme.TEXT_SECONDARY}; font-size: 11px;")
+                
                 bar = QProgressBar()
                 bar.setRange(0, 100)
                 bar.setTextVisible(False)
-                bar.setFixedHeight(8)
+                bar.setFixedHeight(6) # Smaller height
                 
                 colors = [ModernTheme.ACCENT_PURPLE, ModernTheme.ACCENT_CYAN, 
                           ModernTheme.ACCENT_GREEN, ModernTheme.ACCENT_ORANGE]
                 color = colors[i % len(colors)]
                 
                 bar.setStyleSheet(f"""
-                    QProgressBar::chunk {{ background-color: {color}; }}
+                    QProgressBar::chunk {{ background-color: {color}; border-radius: 2px; }}
+                    QProgressBar {{ background-color: #2a2a3a; border: none; border-radius: 2px; }}
                 """)
+                
+                # Frequency Label
+                freq_label = QLabel("0 MHz")
+                freq_label.setStyleSheet(f"color: {ModernTheme.ACCENT_CYAN}; font-size: 10px;")
+                freq_label.setAlignment(Qt.AlignmentFlag.AlignRight)
                 
                 # Value label
                 val_label = QLabel("0%")
-                val_label.setFixedWidth(50)
-                val_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+                val_label.setFixedWidth(45)
+                val_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+                val_label.setStyleSheet("font-size: 12px;")
 
                 row = i // 4  # 4 cores per row
                 col_group = (i % 4)
                 
-                base_col = col_group * 4
+                # 4 items + spacing = 5 columns per group stride
+                base_col = col_group * 5
                 
                 self.grid.addWidget(label, row, base_col)
                 self.grid.addWidget(bar, row, base_col + 1)
-                self.grid.addWidget(val_label, row, base_col + 2)
+                self.grid.addWidget(freq_label, row, base_col + 2)
+                self.grid.addWidget(val_label, row, base_col + 3)
                 
-                self.bars.append((bar, val_label))
+                # Spacer column
+                if col_group < 3:
+                    self.grid.setColumnMinimumWidth(base_col + 4, 10)
+                
+                self.bars.append((bar, val_label, freq_label))
 
         # Update values
         for i, val in enumerate(per_core):
             if i < len(self.bars):
-                bar, val_lbl = self.bars[i]
+                bar, val_lbl, freq_lbl = self.bars[i]
                 bar.setValue(int(val))
-                val_lbl.setText(f"{val:.1f}%")
+                val_lbl.setText(f"{val:.0f}%")
+                
+                if i < len(freqs):
+                    f = freqs[i]
+                    if f >= 1000:
+                        freq_lbl.setText(f"{f/1000:.1f} GHz")
+                    else:
+                        freq_lbl.setText(f"{int(f)} MHz")
+                else:
+                    freq_lbl.setText("")
 
 class MemoryWidget(Card):
     """
@@ -1445,6 +1472,10 @@ class ProcessListWidget(Card):
         self.visible_grouped = ["name", "cpu", "mem", "mem_mb", "mem_swap", "count"]
         self.visible_detail = ["pid", "name", "cpu", "mem", "mem_mb", "mem_shared", "mem_swap"]
         
+        # Note: Delegates (ProgressDelegate) were removed to ensure clean text rendering 
+        # and avoid visual artifacts in the process list. Standard QTableWidgetItem 
+        # rendering is now used for all columns.
+
         # Action Bar
         action_layout = QHBoxLayout()
         
@@ -1579,6 +1610,8 @@ class ProcessListWidget(Card):
         labels = [self.column_defs[col_id][0] for col_id in visible]
         table.setColumnCount(len(labels))
         table.setHorizontalHeaderLabels(labels)
+        
+
 
     def update_sort_indicator(self, table, visible_cols):
         """
@@ -2569,7 +2602,7 @@ class TopPanelWidget(QWidget):
         self.layout.setStretch(1, 1)
         self.layout.setStretch(2, 2)
         
-    def update_cpu(self, overall, _):
+    def update_cpu(self, overall, *_):
         """
         Updates the CPU utilization gauge.
 
