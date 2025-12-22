@@ -29,3 +29,5 @@ grok.md
 currentApp*.png
 output.txt
 
+# Local Context
+.gemini_context/

@@ -40,29 +40,38 @@
 
 ## 📦 Installation
 
-### Prerequisites
-*   Python 3.8+
-*   Linux (Tested on Fedora/Nobara, should work on Ubuntu/Debian/Arch)
+**Most Users:** You do **NOT** need to install Python or follow the steps below if you just want to run the app.
+👉 **[Download the standalone executable](https://github.com/majoraexp/Taskwire/releases)**, mark it as executable (`chmod +x Taskwire`), and double-click to run.
 
-### Steps
+### Running from Source (Developers)
+If you want to modify the code or run it from source, follow these detailed steps.
+
+### Prerequisites
+*   **Python 3.8 or newer**: Verify with `python3 --version`.
+*   **Linux**: Tested on Fedora/Nobara, Ubuntu, Debian, and Arch.
+
+### Step-by-Step Guide
 
 1.  **Clone the repository:**
+    Open your terminal and run:
     ```bash
-    git clone https://github.com/yourusername/Taskwire.git
+    git clone https://github.com/majoraexp/Taskwire.git
     cd Taskwire
     ```
 
 2.  **Create a virtual environment (Recommended):**
+    This keeps your system packages clean.
     ```bash
     python3 -m venv venv
     source venv/bin/activate
     ```
+    *(You will see `(venv)` appear in your terminal prompt indicating it is active.)*
 
 3.  **Install dependencies:**
+    This installs `PyQt6` (for the GUI) and `psutil` (for system monitoring).
     ```bash
     pip install -r Taskwire/requirements.txt
     ```
-    *Dependencies include `PyQt6` and `psutil`.*
 
 4.  **Run the application:**
     ```bash
@@ -71,7 +80,8 @@
 
 ## 🛠 Building Executable (Linux)
 
-To create a standalone portable executable (AppImage-like binary):
+### Standard Build (For your own machine)
+To create a standalone portable executable for your current OS version:
 
 1.  Ensure you have the dev dependencies installed (PyInstaller):
     ```bash
@@ -87,6 +97,21 @@ To create a standalone portable executable (AppImage-like binary):
     ```
     Taskwire/dist/Taskwire
     ```
+
+### Building for Distribution (High Compatibility)
+**Recommended if sharing the binary.** 
+If you build on a new Linux distro (like Nobara, Fedora 40+, Arch), the binary might not work on older systems (Ubuntu 24.04/22.04) due to `glibc` mismatches.
+
+To build a universally compatible binary using Docker:
+
+1.  Run the docker build script:
+    ```bash
+    ./build_with_docker.sh
+    ```
+
+2.  The compatible executable will be created at `Taskwire/dist/Taskwire`.
+
+See [COMPATIBILITY_GUIDE.md](COMPATIBILITY_GUIDE.md) for more details.
 
 ## 🎨 Credits
 *   **Theme:** Inspired by the [Dracula Theme](https://draculatheme.com/).
