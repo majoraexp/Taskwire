@@ -1570,6 +1570,7 @@ class ProcessListWidget(Card):
             """
             QTableWidget {{
                 background-color: {background_color};
+                alternate-background-color: {alternate_color};
                 gridline-color: {gridline_color};
                 border: none;
             }}
@@ -1590,6 +1591,7 @@ class ProcessListWidget(Card):
             }}
             """.format(
                 background_color=ModernTheme.WIDGET_BACKGROUND,
+                alternate_color="#2a2a3a",
                 gridline_color=ModernTheme.BORDER_COLOR,
                 text_primary=ModernTheme.TEXT_PRIMARY,
                 border_color=ModernTheme.BORDER_COLOR,
