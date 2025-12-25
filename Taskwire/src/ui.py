@@ -2041,6 +2041,9 @@ class ProcessListWidget(Card):
             if b > 1024: return f"{b/1024:.1f} KiB"
             return f"{b} B"
 
+        # Save Scroll Position
+        current_scroll = table.verticalScrollBar().value()
+
         selected_val = None
         key_col_idx = -1
         
@@ -2144,6 +2147,9 @@ class ProcessListWidget(Card):
         if mode not in self.auto_sized_views and len(data) > 0:
             table.resizeColumnsToContents()
             self.auto_sized_views.add(mode)
+            
+        # Restore Scroll Position
+        table.verticalScrollBar().setValue(current_scroll)
 
     def show_group_context_menu(self, pos):
         """
