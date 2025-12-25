@@ -1617,8 +1617,8 @@ class ProcessListWidget(Card):
 
     def refresh_theme(self):
         """Refreshes the widget's colors based on the current ModernTheme."""
-        self.setup_table_style(self.group_table)
-        self.setup_table_style(self.detail_table)
+        self.apply_table_theme(self.group_table)
+        self.apply_table_theme(self.detail_table)
         
         self.search_input.setStyleSheet(
             f"QLineEdit {{"
@@ -1662,6 +1662,10 @@ class ProcessListWidget(Card):
         header = ModernHeader(Qt.Orientation.Horizontal, table)
         table.setHorizontalHeader(header)
         
+        self.apply_table_theme(table)
+
+    def apply_table_theme(self, table):
+        """Applies the current theme stylesheet to the table."""
         table.setStyleSheet(
             """
             QTableWidget {{
