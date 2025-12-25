@@ -59,16 +59,17 @@ class GameTooltip(QWidget):
         
         rect = self.rect()
         
-        # Semi-transparent Background (Dark Blue/Black)
-        # Alpha 180 is roughly 70% opacity
-        painter.setBrush(QBrush(QColor(30, 30, 46, 180)))
+        # Semi-transparent Background (Themed)
+        bg_color = QColor(ModernTheme.WIDGET_BACKGROUND)
+        bg_color.setAlpha(230) # Higher opacity for better readability in light mode
+        painter.setBrush(QBrush(bg_color))
         
         # Neon Border
         painter.setPen(QPen(QColor(ModernTheme.ACCENT_PURPLE), 1))
         painter.drawRoundedRect(rect.adjusted(0,0,-1,-1), 5, 5)
         
         # Text
-        painter.setPen(QColor("#ffffff"))
+        painter.setPen(QColor(ModernTheme.TEXT_PRIMARY))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.text)
 
     def sizeHint(self):
@@ -277,13 +278,13 @@ class TempGraphWidget(Card):
         self.maxlen = 90
         self.history = {}
         
-        # Colors from the reference image (approx)
+        # Colors from the Theme
         self.colors = [
-            QColor("#bd93f9"), # Purple
-            QColor("#6272a4"), # Blue
-            QColor("#ff5555"), # Red
-            QColor("#50fa7b"), # Green
-            QColor("#ffb86c")  # Orange
+            QColor(ModernTheme.ACCENT_PURPLE),
+            QColor(ModernTheme.ACCENT_BLUE),
+            QColor(ModernTheme.ACCENT_RED),
+            QColor(ModernTheme.ACCENT_GREEN),
+            QColor(ModernTheme.ACCENT_ORANGE)
         ]
         
         self.graph_area = QWidget()
@@ -303,6 +304,28 @@ class TempGraphWidget(Card):
         self.hover_index = -1
         self.hover_pos = QPoint()
         self.hover_pos = QPoint()
+
+    def refresh_theme(self):
+        """
+        Refreshes the widget's colors based on the current ModernTheme.
+        """
+        # Re-fetch colors
+        self.colors = [
+            QColor(ModernTheme.ACCENT_PURPLE),
+            QColor(ModernTheme.ACCENT_BLUE),
+            QColor(ModernTheme.ACCENT_RED),
+            QColor(ModernTheme.ACCENT_GREEN),
+            QColor(ModernTheme.ACCENT_ORANGE)
+        ]
+        
+        # Clear Legend so it rebuilds with new text colors
+        while self.legend_layout.count():
+            item = self.legend_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self.legend_labels = {}
+        
+        self.graph_area.update()
 
     def update_data(self, temp_data):
         """
@@ -547,6 +570,10 @@ class CpuHistoryWidget(Card):
             index = max(0, min(index, len(self.data_points) - 1))
             val = self.data_points[index]
             self.tooltip_widget.update_info(f"CPU: {val:.1f}%")
+
+    def refresh_theme(self):
+        """Refreshes the widget's colors based on the current ModernTheme."""
+        self.graph_area.update()
         
     def eventFilter(self, source, event):
         """
@@ -660,6 +687,14 @@ class CpuWidget(Card):
         self.layout.addLayout(self.grid)
         self.bars = []
         
+    def refresh_theme(self):
+        """Refreshes the widget's colors by clearing the grid so it rebuilds on next update."""
+        while self.grid.count():
+            item = self.grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self.bars = []
+
     def update_data(self, overall, per_core, freqs=None):
         """
         Updates the CPU utilization bars and frequency for each core.
@@ -688,7 +723,7 @@ class CpuWidget(Card):
                 
                 bar.setStyleSheet(f"""
                     QProgressBar::chunk {{ background-color: {color}; border-radius: 2px; }}
-                    QProgressBar {{ background-color: #2a2a3a; border: none; border-radius: 2px; }}
+                    QProgressBar {{ background-color: {ModernTheme.ALTERNATE_TABLE_BG}; border: none; border-radius: 2px; }}
                 """)
                 
                 # Frequency Label
@@ -759,6 +794,12 @@ class MemoryWidget(Card):
         self.total_label_bottom.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.total_label_bottom.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY}; font-size: 11px;") # Brighter white
         self.layout.addWidget(self.total_label_bottom)
+
+    def refresh_theme(self):
+        """Refreshes the widget's colors based on the current ModernTheme."""
+        self.used_label_top.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY}; font-size: 11px;")
+        self.total_label_bottom.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY}; font-size: 11px;")
+        self.gauge.update()
 
     def update_data(self, stats):
         """
@@ -929,6 +970,17 @@ class DiskWidget(Card):
         self.layout.addWidget(self.val_label)
         self.layout.addStretch()
 
+    def refresh_theme(self):
+        """Refreshes the widget's colors based on the current ModernTheme."""
+        self.model_label.setStyleSheet(
+            f"color: {ModernTheme.ACCENT_CYAN}; font-weight: bold; font-size: 14px;"
+        )
+        self.bar.setStyleSheet(
+            f"QProgressBar::chunk {{ background-color: {ModernTheme.ACCENT_ORANGE}; }}"
+        )
+        for btn in self.buttons.values():
+            btn.update()
+
     def update_data(self, disks_dict):
         """
         Updates the displayed disk data and refreshes the drive icons.
@@ -1090,6 +1142,16 @@ class DiskIOWidget(Card):
         self.tooltip_widget = GameTooltip(self.graph_area)
         self.hover_index = -1
         self.hover_pos = QPoint()
+
+    def refresh_theme(self):
+        """Refreshes the widget's colors based on the current ModernTheme."""
+        self.read_bar.setStyleSheet(f"""
+            QProgressBar::chunk {{ background-color: {ModernTheme.ACCENT_BLUE}; }}
+        """)
+        self.write_bar.setStyleSheet(f"""
+            QProgressBar::chunk {{ background-color: {ModernTheme.ACCENT_RED}; }}
+        """)
+        self.graph_area.update()
 
     def set_duration(self, seconds):
         self.maxlen = seconds
@@ -1287,6 +1349,11 @@ class NetworkWidget(Card):
         self.layout.addWidget(self.up_label)
         self.layout.addWidget(self.down_label)
         self.layout.addStretch()
+
+    def refresh_theme(self):
+        """Refreshes the widget's colors based on the current ModernTheme."""
+        self.up_label.setStyleSheet(f"color: {ModernTheme.ACCENT_CYAN}; ")
+        self.down_label.setStyleSheet(f"color: {ModernTheme.ACCENT_GREEN}; ")
 
     def update_data(self, stats):
         """
@@ -1548,6 +1615,35 @@ class ProcessListWidget(Card):
         
         self.stack.addWidget(self.detail_table)
 
+    def refresh_theme(self):
+        """Refreshes the widget's colors based on the current ModernTheme."""
+        self.setup_table_style(self.group_table)
+        self.setup_table_style(self.detail_table)
+        
+        self.search_input.setStyleSheet(
+            f"QLineEdit {{"
+            f"background-color: {ModernTheme.APP_BACKGROUND};"
+            f"color: {ModernTheme.TEXT_PRIMARY};"
+            f"border: 1px solid {ModernTheme.BORDER_COLOR};"
+            f"border-radius: 5px;"
+            f"padding: 5px;"
+            f"}}"
+        )
+        
+        self.view_btn.setStyleSheet(  # pylint: disable=C0301
+            f"QPushButton {{"
+            f"background-color: {ModernTheme.WIDGET_BACKGROUND};"
+            f"color: {ModernTheme.ACCENT_CYAN};"
+            f"border: 1px solid {ModernTheme.ACCENT_CYAN};"
+            f"border-radius: 5px;"
+            f"font-weight: bold;"
+            f"}}"
+            f"QPushButton:hover {{"
+            f"background-color: {ModernTheme.ACCENT_CYAN};"
+            f"color: {ModernTheme.APP_BACKGROUND};"
+            f"}}"
+        )
+
     def setup_table_style(self, table):
         """
         Applies common style settings to a QTableWidget, including headers and selection behavior.
@@ -1591,7 +1687,7 @@ class ProcessListWidget(Card):
             }}
             """.format(
                 background_color=ModernTheme.WIDGET_BACKGROUND,
-                alternate_color="#2a2a3a",
+                alternate_color=ModernTheme.ALTERNATE_TABLE_BG,
                 gridline_color=ModernTheme.BORDER_COLOR,
                 text_primary=ModernTheme.TEXT_PRIMARY,
                 border_color=ModernTheme.BORDER_COLOR,
@@ -2235,6 +2331,22 @@ class ModernGaugeWidget(Card):
         self.layout.addWidget(self.label_total_ext)
         self.label_total_ext.hide()
         
+    def set_color(self, color_hex):
+        """Sets the gauge color dynamically."""
+        self.color = QColor(color_hex)
+        self.gauge_area.update()
+
+    def refresh_theme(self):
+        """Refreshes the widget's colors based on the current ModernTheme."""
+        self.label_used_ext.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY}; font-size: 11px;")
+        self.label_total_ext.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY}; font-size: 11px;")
+        
+        # Update internal text values color
+        for line in self.text_lines_values:
+            line["color"] = ModernTheme.TEXT_PRIMARY
+            
+        self.gauge_area.update()
+        
     def set_simple_percent(self, percent):
         """
         Sets the gauge to display a simple percentage value.
@@ -2390,6 +2502,23 @@ class FanGraphWidget(Card):
         self.tooltip_widget = GameTooltip(self.graph_area)
         self.hover_index = -1
         self.hover_pos = QPoint()
+
+    def refresh_theme(self):
+        """Refreshes the widget's colors based on the current ModernTheme."""
+        self.colors = [
+            QColor(ModernTheme.ACCENT_RED),
+            QColor(ModernTheme.ACCENT_CYAN),
+            QColor(ModernTheme.ACCENT_ORANGE),
+            QColor(ModernTheme.ACCENT_PURPLE)
+        ]
+        
+        while self.legend_layout.count():
+            item = self.legend_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self.legend_labels = {}
+        
+        self.graph_area.update()
 
     def update_data(self, fan_data):
         """
@@ -2604,6 +2733,16 @@ class TopPanelWidget(QWidget):
         self.layout.setStretch(1, 1)
         self.layout.setStretch(2, 2)
         
+    def refresh_theme(self):
+        """Refreshes the theme for all top panel widgets."""
+        self.cpu_gauge.set_color(ModernTheme.ACCENT_CYAN)
+        self.cpu_gauge.refresh_theme()
+        
+        self.gpu_gauge.set_color(ModernTheme.ACCENT_BLUE)
+        self.gpu_gauge.refresh_theme()
+        
+        self.fan_widget.refresh_theme()
+
     def update_cpu(self, overall, *_):
         """
         Updates the CPU utilization gauge.

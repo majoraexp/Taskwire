@@ -134,6 +134,49 @@ class MainWindow(QMainWindow):
         
         col2_action = layout_menu.addAction("2 Columns")
         col2_action.triggered.connect(lambda: self.set_layout_columns(2))
+        
+        settings_menu.addSeparator()
+        
+        # Theme Options
+        theme_menu = settings_menu.addMenu("Theme")
+        self.dark_action = theme_menu.addAction("Dark Mode")
+        self.dark_action.setCheckable(True)
+        self.dark_action.setChecked(True)
+        self.dark_action.triggered.connect(lambda: self.switch_theme("dark"))
+        
+        self.light_action = theme_menu.addAction("Light Mode")
+        self.light_action.setCheckable(True)
+        self.light_action.setChecked(False)
+        self.light_action.triggered.connect(lambda: self.switch_theme("light"))
+
+    def switch_theme(self, mode):
+        """
+        Switches the application theme and refreshes all widgets.
+        """
+        if mode == "dark":
+            self.dark_action.setChecked(True)
+            self.light_action.setChecked(False)
+        else:
+            self.dark_action.setChecked(False)
+            self.light_action.setChecked(True)
+            
+        # Apply Theme
+        ModernTheme.set_theme(mode)
+        
+        # Update App Stylesheet
+        QApplication.instance().setStyleSheet(ModernTheme.get_stylesheet())
+        
+        # Refresh Widgets
+        self.cpu_history.refresh_theme()
+        self.cpu_widget.refresh_theme()
+        self.mem_widget.refresh_theme()
+        self.net_widget.refresh_theme()
+        self.disk_widget.refresh_theme()
+        self.temp_widget.refresh_theme()
+        self.disk_io_widget.refresh_theme()
+        self.top_panel.refresh_theme()
+        self.process_widget.refresh_theme()
+
     def change_graph_duration(self):
         """
         Opens an input dialog to allow the user to change the CPU history graph duration.
