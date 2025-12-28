@@ -42,8 +42,6 @@
 
 ## 📦 Installation
 
-![Taskwire Dashboard](taskwire_dashboard.png)
-
 **Most Users:** You do **NOT** need to install Python or follow the steps below if you just want to run the app.
 👉 **[Download the standalone executable](https://github.com/majoraexp/Taskwire/releases)**, mark it as executable (`chmod +x Taskwire`), and double-click to run.
 
