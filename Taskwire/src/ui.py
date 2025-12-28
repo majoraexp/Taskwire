@@ -290,7 +290,7 @@ class TempGraphWidget(Card):
         """
         Initializes the TempGraphWidget.
         """
-        super().__init__("Motherboard temp sensors")
+        super().__init__("Temperatures")
         self.maxlen = 90
         self.update_interval = 0
         self.last_update_time = 0
@@ -306,21 +306,21 @@ class TempGraphWidget(Card):
         ]
         
         self.graph_area = QWidget()
-        self.graph_area.setMinimumHeight(100) # Reduced height
+        self.graph_area.setMinimumHeight(150)
         self.graph_area.paintEvent = self.paint_graph
         self.graph_area.setMouseTracking(True)
         self.graph_area.installEventFilter(self)
-        self.layout.addWidget(self.graph_area)
+        self.layout.addWidget(self.graph_area, 1)
         
         # Legend / Values area
         self.legend_layout = QGridLayout()
+        self.legend_layout.setContentsMargins(0, 5, 0, 0)
         self.layout.addLayout(self.legend_layout)
         self.legend_labels = {} # {name: (name_label, value_label)}
         
         # Tooltip State
         self.tooltip_widget = GameTooltip(self.graph_area)
         self.hover_index = -1
-        self.hover_pos = QPoint()
         self.hover_pos = QPoint()
 
     def refresh_theme(self):
@@ -1295,13 +1295,11 @@ class DiskIOWidget(Card):
 
         # Graph Area
         self.graph_area = QWidget()
-        self.graph_area.setMinimumHeight(100)
+        self.graph_area.setMinimumHeight(150)
         self.graph_area.paintEvent = self.paint_graph
         self.graph_area.setMouseTracking(True)
         self.graph_area.installEventFilter(self)
-        self.layout.addWidget(self.graph_area)
-        
-        self.layout.addStretch()
+        self.layout.addWidget(self.graph_area, 1) # Expand to fill space
 
         # Tooltip State
         self.tooltip_widget = GameTooltip(self.graph_area)

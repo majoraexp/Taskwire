@@ -52,7 +52,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         print("DEBUG: MainWindow.__init__ started")
         self.setWindowTitle("Taskwire")
-        self.resize(1200, 900)
+        self.resize(1280, 1297)
         
         # Load icon using resource_path
         icon_path = resource_path("app_icon.png")
