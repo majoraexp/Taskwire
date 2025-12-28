@@ -9,38 +9,9 @@
 
 **Taskwire** is a modern, dark-themed system monitor for Linux, designed with a "Video Game HUD" aesthetic. It provides real-time monitoring of your system's performance with a visual style inspired by cyberpunk interfaces and modern desktop widgets.
 
-> **📥 [Download the latest standalone executable (No Python required)](https://github.com/majoraexp/Taskwire/releases)**
+## 📦 Installation
 
 ![Taskwire Dashboard](taskwire_dashboard.png)
-
-![Taskwire Processes](taskwire_processTab.png)
-*The Process Manager with normalized memory tracking.*
-
-## 🚀 Features
-
-*   **HUD-Style Dashboard:** A cohesive, single-window interface with a Dracula-inspired dark theme and neon accents.
-*   **Live Monitoring:**
-    *   **Extended History:** Customizable graph duration (60s, 90s, **30 Minutes**) for long-term trend spotting.
-    *   **CPU:** Overall usage with a large percentage overlay, per-core utilization bars with frequency (MHz/GHz), and live history.
-    *   **Memory:** Interactive circular gauge showing Physical Memory (RAM) usage.
-    *   **Disk:** 3D isometric drive icons for physical disks and a real-time **Read/Write Speed Graph**.
-    *   **Network:** Real-time upload and download speeds.
-    *   **Thermals:** Live temperature graphs for CPU, GPU, and motherboard sensors.
-    *   **Fans:** Live RPM monitoring for system fans.
-    *   **Enhanced Visuals:** X-axis time indicators, vertical hover lines, and dynamic tooltips on all graphs.
-*   **Process Manager:**
-    *   Full list of running processes.
-    *   **Customizable Metrics:** Right-click headers to toggle columns and arrange metrics to your liking.
-    *   **Sortable Columns:** Click headers to sort by CPU, Memory, PID, or Name.
-    *   **Normalized Memory:** Process memory metrics (Resident, Shared) are dynamically scaled to match system total.
-    *   **Clean Visualization:** Simplified text-based view (no visual clutter) for easier reading of metrics.
-    *   **Swap Monitoring:** Tracks Swap usage per process.
-    *   **Grouping:** Collapses multiple processes by name (e.g., "firefox (12)") for a cleaner view.
-    *   **Process Tree Management:** Kill entire process stacks from the grouped view or use "End Process Tree" in detailed view.
-    *   Search functionality.
-*   **Custom UI:** Built with PyQt6 using custom `QPainter` rendering for gauges, graphs, and icons (no image assets required, fully procedural).
-
-## 📦 Installation
 
 **Most Users:** You do **NOT** need to install Python or follow the steps below if you just want to run the app.
 👉 **[Download the standalone executable](https://github.com/majoraexp/Taskwire/releases)**, mark it as executable (`chmod +x Taskwire`), and double-click to run.
