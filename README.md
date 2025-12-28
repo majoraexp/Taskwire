@@ -20,12 +20,14 @@
 
 *   **HUD-Style Dashboard:** A cohesive, single-window interface with a Dracula-inspired dark theme and neon accents.
 *   **Live Monitoring:**
-    *   **CPU:** Overall usage, per-core utilization bars with frequency (MHz/GHz) monitoring, and a 60s history graph.
+    *   **Extended History:** Customizable graph duration (60s, 90s, **30 Minutes**) for long-term trend spotting.
+    *   **CPU:** Overall usage with a large percentage overlay, per-core utilization bars with frequency (MHz/GHz), and live history.
     *   **Memory:** Interactive circular gauge showing Physical Memory (RAM) usage.
     *   **Disk:** 3D isometric drive icons for physical disks and a real-time **Read/Write Speed Graph**.
     *   **Network:** Real-time upload and download speeds.
     *   **Thermals:** Live temperature graphs for CPU, GPU, and motherboard sensors.
     *   **Fans:** Live RPM monitoring for system fans.
+    *   **Enhanced Visuals:** X-axis time indicators, vertical hover lines, and dynamic tooltips on all graphs.
 *   **Process Manager:**
     *   Full list of running processes.
     *   **Customizable Metrics:** Right-click headers to toggle columns and arrange metrics to your liking.
