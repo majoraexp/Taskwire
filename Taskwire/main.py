@@ -7,10 +7,10 @@ and connects the system monitoring backend to the frontend widgets.
 # pylint: disable=E0611, R0902, C0103
 import sys
 import os
-from PyQt6.QtCore import QThread
+from PyQt6.QtCore import QThread, QTimer, Qt
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QTabWidget,
-    QScrollArea, QInputDialog, QGridLayout, QHBoxLayout
+    QScrollArea, QInputDialog, QGridLayout, QHBoxLayout, QLabel
 )
 from PyQt6.QtGui import QIcon # Import QIcon
 
@@ -23,15 +23,22 @@ from src.ui import (
 from src.system_monitor import SystemWorker
 
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
+    """ Get absolute path to resource, works for dev, PyInstaller and Nuitka """
     try:
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
-        # In dev mode, use the directory of the script
-        base_path = os.path.dirname(os.path.abspath(__file__))
+        # Nuitka Standalone or Dev
+        if "__compiled__" in globals():
+            # In Nuitka standalone, resources are often next to the executable
+            base_path = os.path.dirname(sys.executable)
+        else:
+            # In dev mode, use the directory of the script
+            base_path = os.path.dirname(os.path.abspath(__file__))
 
-    return os.path.join(base_path, relative_path)
+    path = os.path.join(base_path, relative_path)
+    # print(f"DEBUG: Resource Path Request: {relative_path} -> {path}")
+    return path
 
 class MainWindow(QMainWindow):
     # pylint: disable=E0611, R0902, C0103
@@ -43,6 +50,7 @@ class MainWindow(QMainWindow):
     """
     def __init__(self):
         super().__init__()
+        print("DEBUG: MainWindow.__init__ started")
         self.setWindowTitle("Taskwire")
         self.resize(1200, 900)
         
@@ -52,6 +60,7 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(icon_path))
 
         self.dashboard_columns = 2 # Default view
+        self.graph_duration = 90 # Default history duration
 
         # Menu Bar
         self.create_menu()
@@ -87,11 +96,28 @@ class MainWindow(QMainWindow):
         self.top_panel = TopPanelWidget() # Created here to ensure availability
         self.cpu_history = CpuHistoryWidget()
         self.cpu_history.setMaximumHeight(200)
+        
+        # Global Duration Label
+        self.duration_label = QLabel("Graph History: 90s")
+        self.duration_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.duration_label.setStyleSheet(f"color: {ModernTheme.TEXT_SECONDARY}; font-weight: bold; font-size: 12px; margin-bottom: 5px;")
 
+        print("DEBUG: Creating dashboard widgets...")
         self.create_dashboard_widgets()
+        
+        # Initialize graph duration titles and settings (Default 90s, 1s interval)
+        # Note: self.graph_duration is 90 (seconds) by default.
+        default_interval = 1
+        # Use +1 for maxlen so the range is exactly 0..duration inclusive
+        self.cpu_history.set_duration(self.graph_duration + 1, default_interval)
+        self.disk_io_widget.set_duration(self.graph_duration + 1, default_interval)
+        self.temp_widget.set_duration(self.graph_duration + 1, default_interval)
+        self.top_panel.fan_widget.set_duration(self.graph_duration + 1, default_interval)
+
         self.update_dashboard_layout()
 
         # Start System Monitor
+        print("DEBUG: Starting SystemWorker...")
         self.worker = SystemWorker()
         self.worker_thread = QThread()
         self.worker.moveToThread(self.worker_thread)
@@ -113,6 +139,7 @@ class MainWindow(QMainWindow):
         self.worker.disk_io_update.connect(self.disk_io_widget.update_data)
         
         self.worker_thread.start()
+        print("DEBUG: MainWindow.__init__ completed")
 
     def create_menu(self):
         """
@@ -179,15 +206,48 @@ class MainWindow(QMainWindow):
 
     def change_graph_duration(self):
         """
-        Opens an input dialog to allow the user to change the CPU history graph duration.
+        Opens an input dialog to allow the user to change the history graph duration.
         """
-        options = ["60 Seconds", "90 Seconds"]
+        options = ["60 Seconds", "90 Seconds", "30 Minutes"]
+        
+        # Determine current index based on self.graph_duration (total seconds)
+        if self.graph_duration == 60:
+            current_index = 0
+        elif self.graph_duration == 90:
+            current_index = 1
+        elif self.graph_duration >= 1800:
+            current_index = 2
+        else:
+            current_index = 1 # Default 90s
+
         item, ok = QInputDialog.getItem(self, "Graph Settings", 
-                                        "Select History Duration:", options, 0, False)
+                                        "Select History Duration:", options, current_index, False)
         if ok and item:
-            seconds = int(item.split()[0])
-            self.cpu_history.set_duration(seconds)
-            self.disk_io_widget.set_duration(seconds)
+            if "Minute" in item:
+                # 30 Minutes
+                total_seconds = 30 * 60
+                interval = 10
+                maxlen = total_seconds // interval
+                time_str = "30m"
+            else:
+                # Seconds
+                total_seconds = int(item.split()[0])
+                interval = 1
+                maxlen = total_seconds
+                time_str = f"{total_seconds}s"
+            
+            self.graph_duration = total_seconds
+            
+            # Update Global Label
+            self.duration_label.setText(f"Graph History: {time_str}")
+            
+            # Apply to all graph widgets
+            # Use +1 for maxlen so the range is exactly 0..duration inclusive
+            new_maxlen = (total_seconds // interval) + 1
+            self.cpu_history.set_duration(new_maxlen, interval)
+            self.disk_io_widget.set_duration(new_maxlen, interval)
+            self.temp_widget.set_duration(new_maxlen, interval)
+            self.top_panel.fan_widget.set_duration(new_maxlen, interval)
 
     def set_layout_columns(self, cols):
         """
@@ -231,24 +291,27 @@ class MainWindow(QMainWindow):
         # Determine span for wide widgets
         width_span = 1 if self.dashboard_columns == 1 else 2
         
-        # Row 0: Top Panel (Always Full Width)
-        self.dashboard_layout.addWidget(self.top_panel, 0, 0, 1, width_span)
+        # Row 0: Duration Label
+        self.dashboard_layout.addWidget(self.duration_label, 0, 0, 1, width_span)
         
-        # Row 1: CPU History (Always Full Width)
-        self.dashboard_layout.addWidget(self.cpu_history, 1, 0, 1, width_span)
+        # Row 1: Top Panel (Always Full Width)
+        self.dashboard_layout.addWidget(self.top_panel, 1, 0, 1, width_span)
+        
+        # Row 2: CPU History (Always Full Width)
+        self.dashboard_layout.addWidget(self.cpu_history, 2, 0, 1, width_span)
 
         if self.dashboard_columns == 1:
-            # Vertical Stack (Start at Row 2)
-            self.dashboard_layout.addWidget(self.mem_widget, 2, 0)
-            self.dashboard_layout.addWidget(self.temp_widget, 3, 0)
-            self.dashboard_layout.addWidget(self.disk_io_widget, 4, 0)
-            self.dashboard_layout.addWidget(self.net_widget, 5, 0)
-            self.dashboard_layout.addWidget(self.disk_widget, 6, 0)
-            self.dashboard_layout.addWidget(self.cpu_widget, 7, 0)
+            # Vertical Stack (Start at Row 3)
+            self.dashboard_layout.addWidget(self.mem_widget, 3, 0)
+            self.dashboard_layout.addWidget(self.temp_widget, 4, 0)
+            self.dashboard_layout.addWidget(self.disk_io_widget, 5, 0)
+            self.dashboard_layout.addWidget(self.net_widget, 6, 0)
+            self.dashboard_layout.addWidget(self.disk_widget, 7, 0)
+            self.dashboard_layout.addWidget(self.cpu_widget, 8, 0)
         else:
-            # 2 Columns Balanced (Start at Row 2)
-            # Row 2: Memory | Temp + Disk IO
-            self.dashboard_layout.addWidget(self.mem_widget, 2, 0)
+            # 2 Columns Balanced (Start at Row 3)
+            # Row 3: Memory | Temp + Disk IO
+            self.dashboard_layout.addWidget(self.mem_widget, 3, 0)
             
             # Shared container
             container = QWidget()
@@ -259,14 +322,14 @@ class MainWindow(QMainWindow):
             layout.addWidget(self.temp_widget, 1)
             layout.addWidget(self.disk_io_widget, 1)
             
-            self.dashboard_layout.addWidget(container, 2, 1)
+            self.dashboard_layout.addWidget(container, 3, 1)
             
-            # Row 3: Network | Disk
-            self.dashboard_layout.addWidget(self.net_widget, 3, 0)
-            self.dashboard_layout.addWidget(self.disk_widget, 3, 1)
+            # Row 4: Network | Disk
+            self.dashboard_layout.addWidget(self.net_widget, 4, 0)
+            self.dashboard_layout.addWidget(self.disk_widget, 4, 1)
             
-            # Row 4: CPU Cores (Wide)
-            self.dashboard_layout.addWidget(self.cpu_widget, 4, 0, 1, 2)
+            # Row 5: CPU Cores (Wide)
+            self.dashboard_layout.addWidget(self.cpu_widget, 5, 0, 1, 2)
         
         # Adjust row stretch to keep things tight at top?
         # QGridLayout handles it mostly fine. We can add a stretch at the end.
@@ -284,6 +347,8 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setApplicationName("Taskwire")
+    app.setDesktopFileName("Taskwire")
     
     # Apply Theme
     app.setStyleSheet(ModernTheme.get_stylesheet())
@@ -294,10 +359,18 @@ if __name__ == "__main__":
         app.setWindowIcon(QIcon(app_icon_path))
 
     try:
+        print(f"DEBUG: Main Thread ID: {int(QThread.currentThreadId())}")
+        print("DEBUG: Starting MainWindow initialization...")
         window = MainWindow()
+        print("DEBUG: MainWindow initialized. Calling show()...")
         window.show()
+        window.raise_()
+        window.activateWindow()
+        
+        print("DEBUG: Application event loop starting...")
         sys.exit(app.exec())
     except Exception as e:
+        print(f"DEBUG: Exception caught: {e}")
         import traceback
         with open("crash_log.txt", "w") as f:
             f.write(f"Error: {str(e)}\n")

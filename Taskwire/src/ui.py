@@ -5,6 +5,7 @@ built using PyQt6. It includes various gauges, graphs, and a process list
 widget with custom drawing and styling.
 """
 import math
+import time
 from collections import deque
 
 from PyQt6.QtCore import Qt, QRectF, QSize, QPointF, QPoint, QEvent
@@ -22,6 +23,20 @@ from PyQt6.QtWidgets import (
 
 from .styles import ModernTheme
 
+def format_time_offset(seconds):
+    """
+    Formats a time offset (in seconds) into a short string (e.g., "30s", "5m 30s").
+    """
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    else:
+        m = seconds // 60
+        s = seconds % 60
+        if s > 0:
+            return f"{m}m {s}s"
+        return f"{m}m"
+
 class GameTooltip(QWidget):
     """
     A custom tooltip widget designed to mimic a game HUD style.
@@ -32,6 +47,7 @@ class GameTooltip(QWidget):
         self.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.text = ""
         # Use a slightly larger/clearer font
         font = QFont()
@@ -276,6 +292,8 @@ class TempGraphWidget(Card):
         """
         super().__init__("Motherboard temp sensors")
         self.maxlen = 90
+        self.update_interval = 0
+        self.last_update_time = 0
         self.history = {}
         
         # Colors from the Theme
@@ -327,6 +345,14 @@ class TempGraphWidget(Card):
         
         self.graph_area.update()
 
+    def set_duration(self, seconds, interval=0):
+        self.maxlen = seconds
+        self.update_interval = interval
+        
+        # Reset history to avoid mixed time-scales
+        self.history.clear()
+        self.graph_area.update()
+
     def update_data(self, temp_data):
         """
         Updates the temperature history and triggers a graph repaint.
@@ -335,16 +361,7 @@ class TempGraphWidget(Card):
             temp_data (dict): A dictionary where keys are sensor names (str)
                               and values are their current temperatures (float).
         """
-        # Update History
-        for name, value in temp_data.items():
-            if name not in self.history:
-                self.history[name] = deque([30.0]*self.maxlen, maxlen=self.maxlen)
-            self.history[name].append(value)
-            
         # Update Legend
-        # Clear/Rebuild is inefficient, better to update text
-        # But names might change (unlikely), so let's just handle updates
-        
         for i, (name, value) in enumerate(temp_data.items()):
             color = self.colors[i % len(self.colors)]
             color_hex = color.name()
@@ -368,6 +385,19 @@ class TempGraphWidget(Card):
             else:
                 self.legend_labels[name].setText(display_text)
 
+        # Throttle history update
+        now = time.time()
+        if self.update_interval > 0 and (now - self.last_update_time) < self.update_interval:
+            return
+
+        self.last_update_time = now
+
+        # Update History
+        for name, value in temp_data.items():
+            if name not in self.history:
+                self.history[name] = deque([None]*self.maxlen, maxlen=self.maxlen)
+            self.history[name].append(value)
+
         self.graph_area.update()
 
         # Update tooltip if visible
@@ -378,11 +408,22 @@ class TempGraphWidget(Card):
             step_x = width / (self.maxlen - 1)
             index = int(round(x / step_x))
             index = max(0, min(index, self.maxlen - 1))
+            
+            # Calculate Time Offset for Tooltip
+            interval = max(1, self.update_interval)
+            seconds_ago = (self.maxlen - 1 - index) * interval
+            time_str = format_time_offset(seconds_ago)
+            
             tooltip_lines = []
+            tooltip_lines.append(f"Time: -{time_str}")
+            
             for name, points in self.history.items():
                 if index < len(points):
                     val = points[index]
-                    tooltip_lines.append(f"{name}: {val:.1f}°C")
+                    if val is None:
+                        tooltip_lines.append(f"{name}: NA")
+                    else:
+                        tooltip_lines.append(f"{name}: {val:.1f}°C")
             if tooltip_lines:
                 self.tooltip_widget.update_info("\n".join(tooltip_lines))
             else:
@@ -407,12 +448,23 @@ class TempGraphWidget(Card):
                 self.hover_index = index
                 self.hover_pos = event.pos()
 
+                # Calculate Time Offset for Tooltip
+                interval = max(1, self.update_interval)
+                seconds_ago = (self.maxlen - 1 - index) * interval
+                time_str = format_time_offset(seconds_ago)
+
                 # Construct Tooltip
                 tooltip_lines = []
+                # Header
+                tooltip_lines.append(f"Time: -{time_str}")
+                
                 for name, points in self.history.items():
                     if index < len(points):
                         val = points[index]
-                        tooltip_lines.append(f"{name}: {val:.1f}°C")
+                        if val is None:
+                            tooltip_lines.append(f"{name}: NA")
+                        else:
+                            tooltip_lines.append(f"{name}: {val:.1f}°C")
                         
                 if tooltip_lines:
                     self.tooltip_widget.update_info("\n".join(tooltip_lines))
@@ -441,6 +493,9 @@ class TempGraphWidget(Card):
         
         w = self.graph_area.width()
         h = self.graph_area.height()
+        bottom_margin = 20
+        top_margin = 10
+        graph_h = h - bottom_margin - top_margin
         
         # Draw Background & Grid
         # Range 30 - 100
@@ -455,13 +510,40 @@ class TempGraphWidget(Card):
         # Draw grid lines for 40, 60, 80, 100
         for t in [40, 60, 80, 100]:
             # Normalize t to 0-1 (0 is bottom, 1 is top)
-            # y = h - (normalized * h)
+            # y = top_margin + graph_h - (normalized * graph_h)
             normalized = (t - min_temp) / temp_range
-            y = h - (normalized * h)
+            y = top_margin + graph_h - (normalized * graph_h)
             painter.drawLine(0, int(y), w, int(y))
             
             # Text label for grid
             painter.drawText(2, int(y) - 2, f"{t}°C")
+
+        # Draw Time Axis (X-Axis)
+        total_seconds = (self.maxlen - 1) * max(1, self.update_interval)
+        num_ticks = 6
+        tick_pen = QPen(QColor(ModernTheme.TEXT_SECONDARY))
+        painter.setPen(tick_pen)
+        font = QFont()
+        font.setPointSize(8)
+        painter.setFont(font)
+        
+        for i in range(num_ticks):
+            ratio = i / (num_ticks - 1)
+            x = ratio * w
+            seconds_ago = total_seconds * (1 - ratio)
+            time_str = format_time_offset(seconds_ago)
+            
+            # Align center, except first and last
+            flags = Qt.AlignmentFlag.AlignCenter
+            if i == 0: flags = Qt.AlignmentFlag.AlignLeft
+            elif i == num_ticks - 1: flags = Qt.AlignmentFlag.AlignRight
+            
+            # Draw text at bottom
+            text_rect = QRectF(x - 25, h - bottom_margin + 2, 50, 15)
+            if i == 0: text_rect = QRectF(0, h - bottom_margin + 2, 50, 15)
+            elif i == num_ticks - 1: text_rect = QRectF(w - 50, h - bottom_margin + 2, 50, 15)
+            
+            painter.drawText(text_rect, flags, time_str)
 
         # Draw Lines
         step_x = w / (self.maxlen - 1)
@@ -472,18 +554,23 @@ class TempGraphWidget(Card):
             points = list(points_deque)
             path = QPainterPath()
             
-            # Start point
-            start_norm = (points[0] - min_temp) / temp_range
-            # Clamp to 0-1
-            start_norm = max(0.0, min(1.0, start_norm))
-            path.moveTo(0, h - (start_norm * h))
+            has_started = False
             
             for j, val in enumerate(points):
+                if val is None:
+                    has_started = False
+                    continue
+
                 x = j * step_x
                 norm = (val - min_temp) / temp_range
                 norm = max(0.0, min(1.0, norm))
-                y = h - (norm * h)
-                path.lineTo(x, y)
+                y = top_margin + graph_h - (norm * graph_h)
+                
+                if not has_started:
+                    path.moveTo(x, y)
+                    has_started = True
+                else:
+                    path.lineTo(x, y)
             
             color = self.colors[i % len(self.colors)]
             pen = QPen(color, 2)
@@ -495,15 +582,20 @@ class TempGraphWidget(Card):
             if self.hover_index != -1 and self.hover_index < len(points):
                 val = points[self.hover_index]
                 
-                # Recalculate position
-                hx = self.hover_index * step_x
-                norm = (val - min_temp) / temp_range
-                norm = max(0.0, min(1.0, norm))
-                hy = h - (norm * h)
-                
-                painter.setBrush(QBrush(color))
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.drawEllipse(QPointF(hx, hy), 4, 4)
+                if val is not None:
+                    # Recalculate position
+                    hx = self.hover_index * step_x
+                    norm = (val - min_temp) / temp_range
+                    norm = max(0.0, min(1.0, norm))
+                    hy = top_margin + graph_h - (norm * graph_h)
+                    
+                    # Draw Vertical Line
+                    painter.setPen(QPen(QColor(ModernTheme.BORDER_COLOR), 1, Qt.PenStyle.DashLine))
+                    painter.drawLine(int(hx), 0, int(hx), int(h - bottom_margin)) # Line down to axis
+
+                    painter.setBrush(QBrush(color))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawEllipse(QPointF(hx, hy), 4, 4)
 
 class CpuHistoryWidget(Card):
     """
@@ -518,6 +610,8 @@ class CpuHistoryWidget(Card):
         """
         super().__init__("Total CPU History")
         self.maxlen = history_duration
+        self.update_interval = 0
+        self.last_update_time = 0
         self.data_points = deque([0]*self.maxlen, maxlen=self.maxlen)
         
         self.graph_area = QWidget()
@@ -527,26 +621,24 @@ class CpuHistoryWidget(Card):
         self.graph_area.installEventFilter(self)
         self.layout.addWidget(self.graph_area)
         
-        self.val_label = QLabel("0.0%")
-        self.val_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.val_label.setProperty("class", "value")
-        self.layout.addWidget(self.val_label)
-
         # Tooltip State
         self.tooltip_widget = GameTooltip(self.graph_area)
         self.hover_index = -1
         self.hover_pos = QPoint()
         
-    def set_duration(self, seconds):
+    def set_duration(self, seconds, interval=0):
         """
         Sets the duration (in seconds) for which CPU history is maintained.
+        
+        Args:
+            seconds (int): Max number of data points to store.
+            interval (int): Minimum seconds between updates. 0 = no throttle.
         """
         self.maxlen = seconds
-        # Resize deque, keeping recent data
-        self.data_points = deque(self.data_points, maxlen=self.maxlen)
-        # Pad if needed (optional, but deque handles truncation)
-        while len(self.data_points) < self.maxlen:
-            self.data_points.appendleft(0)
+        self.update_interval = interval
+        
+        # Reset deque to avoid mixed time-scales
+        self.data_points = deque([0]*self.maxlen, maxlen=self.maxlen)
         self.graph_area.update()
         
     def update_data(self, cpu_percent):
@@ -556,20 +648,39 @@ class CpuHistoryWidget(Card):
         Args:
             cpu_percent (float): The current total CPU utilization percentage.
         """
+        # Throttle history update
+        now = time.time()
+        if self.update_interval > 0 and (now - self.last_update_time) < self.update_interval:
+            return
+
+        self.last_update_time = now
         self.data_points.append(cpu_percent)
-        self.val_label.setText(f"{cpu_percent:.1f}%")
         self.graph_area.update()
 
         # Update tooltip if visible
-        if self.tooltip_widget.isVisible():
-            rect = self.graph_area.rect()
-            x = self.hover_pos.x()
-            width = rect.width()
-            step_x = width / (self.maxlen - 1)
-            index = int(round(x / step_x))
-            index = max(0, min(index, len(self.data_points) - 1))
-            val = self.data_points[index]
-            self.tooltip_widget.update_info(f"CPU: {val:.1f}%")
+        if self.tooltip_widget.isVisible() and self.hover_index != -1:
+            # Re-calculate index logic or clamp?
+            # Since data shifts, the same hover_index now points to newer data?
+            # Actually, data_points is a deque. append() adds to the RIGHT.
+            # So index 0 is oldest. Index max is newest.
+            # If I hover at index 10. That slot stays index 10.
+            # But the *time* associated with index 10 changes relative to "now".
+            # No, wait. "Now" is always at index max.
+            # Index 10 is always "max - 10" steps ago.
+            # So the time offset for a physical pixel X is constant!
+            # BUT the *value* at that pixel shifts left as new data arrives.
+            # data_points[10] becomes old data_points[11].
+            
+            # So we just need to re-read the value at self.hover_index.
+            
+            if self.hover_index < len(self.data_points):
+                # Calculate Time Offset for Tooltip
+                interval = max(1, self.update_interval)
+                seconds_ago = (self.maxlen - 1 - self.hover_index) * interval
+                time_str = format_time_offset(seconds_ago)
+                
+                val = self.data_points[self.hover_index]
+                self.tooltip_widget.update_info(f"Time: -{time_str}\nCPU: {val:.1f}%")
 
     def refresh_theme(self):
         """Refreshes the widget's colors based on the current ModernTheme."""
@@ -589,8 +700,6 @@ class CpuHistoryWidget(Card):
                 width = rect.width()
                 
                 # Calculate index based on X
-                # step_x = width / (self.maxlen - 1)
-                # index = round(x / step_x)
                 step_x = width / (self.maxlen - 1)
                 index = int(round(x / step_x))
                 
@@ -600,9 +709,14 @@ class CpuHistoryWidget(Card):
                 self.hover_index = index
                 self.hover_pos = event.pos()
                 
+                # Calculate Time Offset for Tooltip
+                interval = max(1, self.update_interval)
+                seconds_ago = (self.maxlen - 1 - index) * interval
+                time_str = format_time_offset(seconds_ago)
+
                 # Update Tooltip
                 val = self.data_points[index]
-                self.tooltip_widget.update_info(f"CPU: {val:.1f}%")
+                self.tooltip_widget.update_info(f"Time: -{time_str}\nCPU: {val:.1f}%")
                 
                 # Position Tooltip (Global Coords)
                 global_pos = self.graph_area.mapToGlobal(event.pos())
@@ -627,31 +741,60 @@ class CpuHistoryWidget(Card):
         
         width = self.graph_area.width()
         height = self.graph_area.height()
+        bottom_margin = 20
+        graph_h = height - bottom_margin
         
         # Draw Background Grid (Subtle)
         grid_pen = QPen(QColor(ModernTheme.BORDER_COLOR))
         grid_pen.setStyle(Qt.PenStyle.DotLine)
         painter.setPen(grid_pen)
         for i in range(1, 5):
-            y = i * (height / 5)
+            y = i * (graph_h / 5)
             painter.drawLine(0, int(y), width, int(y))
         
+        # Draw Time Axis (X-Axis)
+        total_seconds = (self.maxlen - 1) * max(1, self.update_interval)
+        num_ticks = 6
+        tick_pen = QPen(QColor(ModernTheme.TEXT_SECONDARY))
+        painter.setPen(tick_pen)
+        font = QFont()
+        font.setPointSize(8)
+        painter.setFont(font)
+        
+        for i in range(num_ticks):
+            ratio = i / (num_ticks - 1)
+            x = ratio * width
+            seconds_ago = total_seconds * (1 - ratio)
+            time_str = format_time_offset(seconds_ago)
+            
+            # Align center, except first and last
+            flags = Qt.AlignmentFlag.AlignCenter
+            if i == 0: flags = Qt.AlignmentFlag.AlignLeft
+            elif i == num_ticks - 1: flags = Qt.AlignmentFlag.AlignRight
+            
+            # Draw text at bottom
+            text_rect = QRectF(x - 25, height - bottom_margin + 2, 50, 15)
+            if i == 0: text_rect = QRectF(0, height - bottom_margin + 2, 50, 15)
+            elif i == num_ticks - 1: text_rect = QRectF(width - 50, height - bottom_margin + 2, 50, 15)
+            
+            painter.drawText(text_rect, flags, time_str)
+
         # Draw Graph
         if len(self.data_points) < 2:
             return
 
         path = QPainterPath()
-        path.moveTo(0, height) # Start bottom-left
+        path.moveTo(0, graph_h) # Start bottom-left
         
         points = list(self.data_points)
         step_x = width / (self.maxlen - 1)
         
         for i, val in enumerate(points):
             x = i * step_x
-            y = height - (val / 100 * height)
+            y = graph_h - (val / 100 * graph_h)
             path.lineTo(x, y)
             
-        path.lineTo(width, height) # Bottom-right
+        path.lineTo(width, graph_h) # Bottom-right
         path.closeSubpath()
         
         # Fill
@@ -668,11 +811,31 @@ class CpuHistoryWidget(Card):
         if self.hover_index != -1 and self.hover_index < len(points):
             val = points[self.hover_index]
             hx = self.hover_index * step_x
-            hy = height - (val / 100 * height)
+            hy = graph_h - (val / 100 * graph_h)
             
+            # Draw Vertical Line
+            painter.setPen(QPen(QColor(ModernTheme.BORDER_COLOR), 1, Qt.PenStyle.DashLine))
+            painter.drawLine(int(hx), 0, int(hx), int(graph_h))
+
             painter.setBrush(QBrush(QColor(ModernTheme.ACCENT_CYAN)))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(QPointF(hx, hy), 4, 4)
+
+        # Draw Current Value Text (Overlay at Bottom Right)
+        current_val = points[-1]
+        text = f"{current_val:.1f}%"
+        
+        font = QFont()
+        font.setPointSize(24)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor(ModernTheme.TEXT_PRIMARY))
+        
+        # Position: Bottom Right, above the time axis margin
+        # Align Right | Bottom relative to the graph area (minus margins)
+        # Add slight padding from right edge (10px) and bottom of graph area (5px)
+        text_rect = QRectF(width - 150, graph_h - 40, 140, 40)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom, text)
 
 class CpuWidget(Card):
     """
@@ -1078,6 +1241,8 @@ class DiskIOWidget(Card):
         super().__init__("Hard Disk Activity")
 
         self.maxlen = 90
+        self.update_interval = 0
+        self.last_update_time = 0
         self.read_history = deque([0]*self.maxlen, maxlen=self.maxlen)
         self.write_history = deque([0]*self.maxlen, maxlen=self.maxlen)
         
@@ -1153,24 +1318,19 @@ class DiskIOWidget(Card):
         """)
         self.graph_area.update()
 
-    def set_duration(self, seconds):
+    def set_duration(self, seconds, interval=0):
         self.maxlen = seconds
-        self.read_history = deque(self.read_history, maxlen=self.maxlen)
-        self.write_history = deque(self.write_history, maxlen=self.maxlen)
-        # Pad if needed
-        while len(self.read_history) < self.maxlen:
-            self.read_history.appendleft(0)
-        while len(self.write_history) < self.maxlen:
-            self.write_history.appendleft(0)
+        self.update_interval = interval
+        
+        # Reset deques to avoid mixed time-scales
+        self.read_history = deque([0]*self.maxlen, maxlen=self.maxlen)
+        self.write_history = deque([0]*self.maxlen, maxlen=self.maxlen)
         self.graph_area.update()
 
     def update_data(self, stats):
         read_speed = stats['read']
         write_speed = stats['write']
         
-        self.read_history.append(read_speed)
-        self.write_history.append(write_speed)
-
         self.read_val.setText(self.format_speed(read_speed))
         self.write_val.setText(self.format_speed(write_speed))
         
@@ -1189,21 +1349,31 @@ class DiskIOWidget(Card):
         self.read_bar.setValue(int(r_pct))
         self.write_bar.setValue(int(w_pct))
 
+        # Throttle history update
+        now = time.time()
+        if self.update_interval > 0 and (now - self.last_update_time) < self.update_interval:
+            return
+
+        self.last_update_time = now
+        self.read_history.append(read_speed)
+        self.write_history.append(write_speed)
+
         self.graph_area.update()
 
         # Update tooltip if visible
-        if self.tooltip_widget.isVisible():
-            rect = self.graph_area.rect()
-            x = self.hover_pos.x()
-            width = rect.width()
-            step_x = width / (self.maxlen - 1)
-            index = int(round(x / step_x))
-            index = max(0, min(index, len(self.read_history) - 1))
-            r_val = self.read_history[index]
-            w_val = self.write_history[index]
-            self.tooltip_widget.update_info(
-                f"Read: {self.format_speed(r_val)}\nWrite: {self.format_speed(w_val)}"
-            )
+        if self.tooltip_widget.isVisible() and self.hover_index != -1:
+            if self.hover_index < len(self.read_history):
+                r_val = self.read_history[self.hover_index]
+                w_val = self.write_history[self.hover_index]
+
+                # Calculate Time Offset for Tooltip
+                interval = max(1, self.update_interval)
+                seconds_ago = (self.maxlen - 1 - self.hover_index) * interval
+                time_str = format_time_offset(seconds_ago)
+                
+                self.tooltip_widget.update_info(
+                    f"Time: -{time_str}\nRead: {self.format_speed(r_val)}\nWrite: {self.format_speed(w_val)}"
+                )
 
     def eventFilter(self, source, event):
         if source == self.graph_area:
@@ -1224,9 +1394,14 @@ class DiskIOWidget(Card):
 
                 r_val = self.read_history[index]
                 w_val = self.write_history[index]
+
+                # Calculate Time Offset for Tooltip
+                interval = max(1, self.update_interval)
+                seconds_ago = (self.maxlen - 1 - index) * interval
+                time_str = format_time_offset(seconds_ago)
                 
                 self.tooltip_widget.update_info(
-                    f"Read: {self.format_speed(r_val)}\nWrite: {self.format_speed(w_val)}"
+                    f"Time: -{time_str}\nRead: {self.format_speed(r_val)}\nWrite: {self.format_speed(w_val)}"
                 )
                 
                 global_pos = self.graph_area.mapToGlobal(event.pos())
@@ -1248,6 +1423,9 @@ class DiskIOWidget(Card):
         
         w = self.graph_area.width()
         h = self.graph_area.height()
+        bottom_margin = 20
+        top_margin = 10
+        graph_h = h - bottom_margin - top_margin
         
         # Determine Max Y for scaling (local max in history)
         max_val = max(max(self.read_history, default=0), max(self.write_history, default=0))
@@ -1262,11 +1440,38 @@ class DiskIOWidget(Card):
         painter.setPen(grid_pen)
         
         for i in range(1, 4):
-            y = h - (i * (h / 4))
+            y = top_margin + graph_h - (i * (graph_h / 4))
             painter.drawLine(0, int(y), w, int(y))
             # Optional: Draw value text for grid
             val_at_line = max_val * (i / 4)
             painter.drawText(2, int(y) - 2, self.format_speed(val_at_line))
+
+        # Draw Time Axis (X-Axis)
+        total_seconds = (self.maxlen - 1) * max(1, self.update_interval)
+        num_ticks = 6
+        tick_pen = QPen(QColor(ModernTheme.TEXT_SECONDARY))
+        painter.setPen(tick_pen)
+        font = QFont()
+        font.setPointSize(8)
+        painter.setFont(font)
+        
+        for i in range(num_ticks):
+            ratio = i / (num_ticks - 1)
+            x = ratio * w
+            seconds_ago = total_seconds * (1 - ratio)
+            time_str = format_time_offset(seconds_ago)
+            
+            # Align center, except first and last
+            flags = Qt.AlignmentFlag.AlignCenter
+            if i == 0: flags = Qt.AlignmentFlag.AlignLeft
+            elif i == num_ticks - 1: flags = Qt.AlignmentFlag.AlignRight
+            
+            # Draw text at bottom
+            text_rect = QRectF(x - 25, h - bottom_margin + 2, 50, 15)
+            if i == 0: text_rect = QRectF(0, h - bottom_margin + 2, 50, 15)
+            elif i == num_ticks - 1: text_rect = QRectF(w - 50, h - bottom_margin + 2, 50, 15)
+            
+            painter.drawText(text_rect, flags, time_str)
 
         # Helper to draw line
         def draw_line(data_deque, color_hex):
@@ -1278,12 +1483,12 @@ class DiskIOWidget(Card):
             points = list(data_deque)
             
             # Start
-            start_y = h - ((points[0] / max_val) * h)
+            start_y = top_margin + graph_h - ((points[0] / max_val) * graph_h)
             path.moveTo(0, start_y)
             
             for i, val in enumerate(points):
                 x = i * step_x
-                y = h - ((val / max_val) * h)
+                y = top_margin + graph_h - ((val / max_val) * graph_h)
                 path.lineTo(x, y)
                 
             pen = QPen(QColor(color_hex), 2)
@@ -1295,8 +1500,12 @@ class DiskIOWidget(Card):
             if self.hover_index != -1 and self.hover_index < len(points):
                 val = points[self.hover_index]
                 hx = self.hover_index * step_x
-                hy = h - ((val / max_val) * h)
+                hy = top_margin + graph_h - ((val / max_val) * graph_h)
                 
+                # Draw Vertical Line
+                painter.setPen(QPen(QColor(ModernTheme.BORDER_COLOR), 1, Qt.PenStyle.DashLine))
+                painter.drawLine(int(hx), 0, int(hx), int(h - bottom_margin))
+
                 painter.setBrush(QBrush(QColor(color_hex)))
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.drawEllipse(QPointF(hx, hy), 4, 4)
@@ -2484,6 +2693,8 @@ class FanGraphWidget(Card):
         """
         super().__init__("Fan Speeds")
         self.maxlen = 90
+        self.update_interval = 0
+        self.last_update_time = 0
         self.history = {}
         
         # Colors: Red, Blue, Cyan, Orange
@@ -2530,6 +2741,14 @@ class FanGraphWidget(Card):
         
         self.graph_area.update()
 
+    def set_duration(self, seconds, interval=0):
+        self.maxlen = seconds
+        self.update_interval = interval
+        
+        # Reset history to avoid mixed time-scales
+        self.history.clear()
+        self.graph_area.update()
+
     def update_data(self, fan_data):
         """
         Updates the fan speed history and triggers a graph repaint.
@@ -2538,12 +2757,6 @@ class FanGraphWidget(Card):
             fan_data (dict): A dictionary where keys are fan sensor names (str)
                              and values are their current RPMs (int).
         """
-        # Update History
-        for name, value in fan_data.items():
-            if name not in self.history:
-                self.history[name] = deque([0]*self.maxlen, maxlen=self.maxlen)
-            self.history[name].append(value)
-            
         # Update Legend
         for i, (name, value) in enumerate(fan_data.items()):
             color = self.colors[i % len(self.colors)]
@@ -2560,6 +2773,19 @@ class FanGraphWidget(Card):
             else:
                 self.legend_labels[name].setText(display_text)
 
+        # Throttle history update
+        now = time.time()
+        if self.update_interval > 0 and (now - self.last_update_time) < self.update_interval:
+            return
+
+        self.last_update_time = now
+
+        # Update History
+        for name, value in fan_data.items():
+            if name not in self.history:
+                self.history[name] = deque([0]*self.maxlen, maxlen=self.maxlen)
+            self.history[name].append(value)
+
         self.graph_area.update()
 
         # Update tooltip if visible
@@ -2573,7 +2799,15 @@ class FanGraphWidget(Card):
                 step_x = (w - 40) / (self.maxlen - 1)
                 index = int(round((x - 40) / step_x))
                 index = max(0, min(index, self.maxlen - 1))
+                
+                # Calculate Time Offset for Tooltip
+                interval = max(1, self.update_interval)
+                seconds_ago = (self.maxlen - 1 - index) * interval
+                time_str = format_time_offset(seconds_ago)
+                
                 tooltip_lines = []
+                tooltip_lines.append(f"Time: -{time_str}")
+                
                 for name, points in self.history.items():
                     if index < len(points):
                         val = points[index]
@@ -2604,17 +2838,21 @@ class FanGraphWidget(Card):
                 index = int(round((x - 40) / step_x))
                 
                 # Check if we have valid data length
-                # Since deques might be different lengths during startup (though unlikely if synced),
-                # we'll assume they grow to maxlen.
-                # Just clamp to the shortest history for safety or maxlen-1.
-                # Actually, safest is to clamp to 0..maxlen-1
                 index = max(0, min(index, self.maxlen - 1))
                 
                 self.hover_index = index
                 self.hover_pos = event.pos()
 
+                # Calculate Time Offset for Tooltip
+                interval = max(1, self.update_interval)
+                seconds_ago = (self.maxlen - 1 - index) * interval
+                time_str = format_time_offset(seconds_ago)
+
                 # Construct Tooltip
                 tooltip_lines = []
+                # Header
+                tooltip_lines.append(f"Time: -{time_str}")
+                
                 for name, points in self.history.items():
                     if index < len(points):
                         val = points[index]
@@ -2643,6 +2881,8 @@ class FanGraphWidget(Card):
         
         w = self.graph_area.width()
         h = self.graph_area.height()
+        bottom_margin = 20
+        graph_h = h - bottom_margin
         
         # Determine Max RPM for scaling
         max_rpm = 2000 # Default min max
@@ -2667,7 +2907,7 @@ class FanGraphWidget(Card):
         steps = 4
         for i in range(steps + 1):
             val = i * (max_rpm / steps)
-            y = h - (val / max_rpm * h)
+            y = graph_h - (val / max_rpm * graph_h)
             
             # Grid line
             painter.setPen(grid_pen)
@@ -2676,6 +2916,32 @@ class FanGraphWidget(Card):
             # Label
             painter.setPen(QColor(ModernTheme.TEXT_SECONDARY))
             painter.drawText(0, int(y) + 4, 35, 10, Qt.AlignmentFlag.AlignRight, f"{int(val)}")
+
+        # Draw Time Axis (X-Axis)
+        total_seconds = (self.maxlen - 1) * max(1, self.update_interval)
+        num_ticks = 6
+        tick_pen = QPen(QColor(ModernTheme.TEXT_SECONDARY))
+        painter.setPen(tick_pen)
+        
+        for i in range(num_ticks):
+            ratio = i / (num_ticks - 1)
+            # Map ratio to 40..w
+            x = 40 + ratio * (w - 40)
+            
+            seconds_ago = total_seconds * (1 - ratio)
+            time_str = format_time_offset(seconds_ago)
+            
+            # Align center, except first and last
+            flags = Qt.AlignmentFlag.AlignCenter
+            if i == 0: flags = Qt.AlignmentFlag.AlignLeft
+            elif i == num_ticks - 1: flags = Qt.AlignmentFlag.AlignRight
+            
+            # Draw text at bottom
+            text_rect = QRectF(x - 25, graph_h + 2, 50, 15)
+            if i == 0: text_rect = QRectF(40, graph_h + 2, 50, 15)
+            elif i == num_ticks - 1: text_rect = QRectF(w - 50, graph_h + 2, 50, 15)
+            
+            painter.drawText(text_rect, flags, time_str)
 
         # Draw Lines
         step_x = (w - 40) / (self.maxlen - 1)
@@ -2687,12 +2953,12 @@ class FanGraphWidget(Card):
             path = QPainterPath()
             
             # Start
-            start_y = h - (points[0] / max_rpm * h)
+            start_y = graph_h - (points[0] / max_rpm * graph_h)
             path.moveTo(40, start_y)
             
             for j, val in enumerate(points):
                 x = 40 + j * step_x
-                y = h - (val / max_rpm * h)
+                y = graph_h - (val / max_rpm * graph_h)
                 path.lineTo(x, y)
             
             color = self.colors[i % len(self.colors)]
@@ -2705,8 +2971,12 @@ class FanGraphWidget(Card):
             if self.hover_index != -1 and self.hover_index < len(points):
                 val = points[self.hover_index]
                 hx = 40 + self.hover_index * step_x
-                hy = h - (val / max_rpm * h)
+                hy = graph_h - (val / max_rpm * graph_h)
                 
+                # Draw Vertical Line
+                painter.setPen(QPen(QColor(ModernTheme.BORDER_COLOR), 1, Qt.PenStyle.DashLine))
+                painter.drawLine(int(hx), 0, int(hx), int(graph_h))
+
                 painter.setBrush(QBrush(color))
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.drawEllipse(QPointF(hx, hy), 4, 4)

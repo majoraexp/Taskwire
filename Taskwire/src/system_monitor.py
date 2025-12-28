@@ -50,6 +50,8 @@ class SystemWorker(QObject):
         if getattr(self, '_loop_running', False):
             return
         self._loop_running = True
+        
+        print(f"DEBUG: SystemWorker Thread ID: {int(QThread.currentThreadId())}")
 
         is_windows = platform.system() == "Windows"
         
