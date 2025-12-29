@@ -9,7 +9,7 @@
 
 **Taskwire** is a modern, dark-themed system monitor for Linux, designed with a "Video Game HUD" aesthetic. It provides real-time monitoring of your system's performance with a visual style inspired by cyberpunk interfaces and modern desktop widgets.
 
-> **📥 [Download the latest standalone executable (No Python required)](https://github.com/majoraexp/Taskwire/releases)**
+> **📥 [Download the latest standalone executable (No Python required)] (Now compiled in C++!) https://github.com/majoraexp/Taskwire/releases)**
 
 ![Taskwire Dashboard](taskwire_dashboard.png)
 
