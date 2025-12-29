@@ -1,0 +1,25 @@
+# Gemini Context (Local Only)
+.gemini_context/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+venv_build/
+
+# Build and Dist
+Taskwire/dist/
+Taskwire/build/
+Taskwire_Nuitka_Src/
+Nuitka_Build/
+*.spec
+nuitka-crash-report.xml
+debug_run.log
+crash_log.txt
+
+# Screenshots and Debug Images
+*.png
+!taskwire_dashboard.png
+!taskwire_processTab.png
+!Taskwire/app_icon.png
+!Taskwire/assets/icon.png

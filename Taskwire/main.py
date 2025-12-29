@@ -7,6 +7,7 @@ and connects the system monitoring backend to the frontend widgets.
 # pylint: disable=E0611, R0902, C0103
 import sys
 import os
+import threading
 from PyQt6.QtCore import QThread, QTimer, Qt
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QTabWidget,
@@ -28,15 +29,19 @@ def resource_path(relative_path):
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
-        # Nuitka Standalone or Dev
-        if "__compiled__" in globals():
-            # In Nuitka standalone, resources are often next to the executable
-            base_path = os.path.dirname(sys.executable)
-        else:
-            # In dev mode, use the directory of the script
-            base_path = os.path.dirname(os.path.abspath(__file__))
+        # Nuitka (OneFile or Standalone) or Dev
+        # In Nuitka OneFile, assets are extracted to the temp dir with the script
+        base_path = os.path.dirname(os.path.abspath(__file__))
 
     path = os.path.join(base_path, relative_path)
+    
+    # Fallback: If not found, check next to the executable (Side-car asset for Standalone)
+    if not os.path.exists(path):
+        base_path_exe = os.path.dirname(sys.executable)
+        path_exe = os.path.join(base_path_exe, relative_path)
+        if os.path.exists(path_exe):
+            return path_exe
+            
     # print(f"DEBUG: Resource Path Request: {relative_path} -> {path}")
     return path
 
@@ -119,10 +124,8 @@ class MainWindow(QMainWindow):
         # Start System Monitor
         print("DEBUG: Starting SystemWorker...")
         self.worker = SystemWorker()
-        self.worker_thread = QThread()
-        self.worker.moveToThread(self.worker_thread)
-
-        self.worker_thread.started.connect(self.worker.start_monitoring)
+        
+        # Connect Signals
         self.worker.cpu_update.connect(self.cpu_widget.update_data)
         # Connect History Graph
         self.worker.cpu_update.connect(lambda overall, *_: self.cpu_history.update_data(overall))
@@ -138,7 +141,11 @@ class MainWindow(QMainWindow):
         self.worker.temp_update.connect(self.temp_widget.update_data)
         self.worker.disk_io_update.connect(self.disk_io_widget.update_data)
         
+        # Start the worker thread (Python threading)
+        # Nuitka compatibility: Use standard threading instead of QThread to avoid blocking main loop
+        self.worker_thread = threading.Thread(target=self.worker.start_monitoring, daemon=True)
         self.worker_thread.start()
+        
         print("DEBUG: MainWindow.__init__ completed")
 
     def create_menu(self):
@@ -341,8 +348,10 @@ class MainWindow(QMainWindow):
         Stops the system worker thread gracefully before the application exits.
         """
         self.worker.stop()
-        self.worker_thread.quit()
-        self.worker_thread.wait()
+        # We can't join the daemon thread easily, nor do we strictly need to.
+        # But if we wanted to wait:
+        # if self.worker_thread.is_alive():
+        #    self.worker_thread.join(timeout=1.0)
         event.accept()
 
 if __name__ == "__main__":

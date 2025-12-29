@@ -62,7 +62,7 @@ class SystemWorker(QObject):
         
         while self.running:
             # Sleep at start to ensure valid interval for first iteration
-            QThread.msleep(250)
+            time.sleep(0.25)
 
             # 1. CPU Stats
             # Use cpu_times_percent to get breakdown.
