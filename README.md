@@ -100,11 +100,24 @@ To create a standalone portable executable for your current OS version:
     Taskwire/dist/Taskwire
     ```
 
-### Building for Distribution (High Compatibility)
-**Recommended if sharing the binary.** 
-If you build on a new Linux distro (like Nobara, Fedora 40+, Arch), the binary might not work on older systems (Ubuntu 24.04/22.04) due to `glibc` mismatches.
+### Building for Distribution (Nuitka / High Compatibility)
+**Recommended for Release.** 
+This method compiles the Python code to C++ using Nuitka inside a Docker container (Debian 11). This ensures the binary is highly optimized and compatible with older Linux distributions (glibc 2.31+, e.g., Ubuntu 20.04+, Fedora 32+).
 
-To build a universally compatible binary using Docker:
+**Prerequisites:** Docker
+
+1.  Run the Nuitka build script:
+    ```bash
+    ./Nuitka_Build/build.sh
+    ```
+
+2.  The optimized executable will be located at:
+    ```
+    Nuitka_Build/output/Taskwire_Nuitka
+    ```
+
+### PyInstaller Build (Legacy / Testing)
+Useful for quick local builds without Docker.
 
 1.  Run the docker build script:
     ```bash
