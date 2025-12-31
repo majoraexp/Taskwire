@@ -357,6 +357,8 @@ class MainWindow(QMainWindow):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setApplicationName("Taskwire")
+    from src.version import __version__
+    app.setApplicationVersion(__version__)
     app.setDesktopFileName("Taskwire")
     
     # Apply Theme

@@ -11,7 +11,6 @@ venv_build/
 Taskwire/dist/
 Taskwire/build/
 Taskwire_Nuitka_Src/
-Nuitka_Build/
 *.spec
 nuitka-crash-report.xml
 debug_run.log
