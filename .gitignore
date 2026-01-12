@@ -7,18 +7,22 @@ __pycache__/
 venv/
 venv_build/
 
-# Build and Dist
+# Build and Dist (Linux)
 Taskwire/dist/
 Taskwire/build/
 Taskwire_Nuitka_Src/
 *.spec
+
+# Build and Dist (Windows)
+Taskwire(windows)-C++/
+*.zip
 nuitka-crash-report.xml
+nuitka-crash-report.txt
 debug_run.log
 crash_log.txt
 
-# Screenshots and Debug Images
+# Screenshots (Large binary assets)
 *.png
-!taskwire_dashboard.png
-!taskwire_processTab.png
+*.jpg
 !Taskwire/app_icon.png
 !Taskwire/assets/icon.png
