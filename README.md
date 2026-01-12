@@ -128,6 +128,22 @@ Useful for quick local builds without Docker.
 
 See [COMPATIBILITY_GUIDE.md](COMPATIBILITY_GUIDE.md) for more details.
 
+## 🪟 Taskwire for Windows
+
+Taskwire is now available for Windows 10/11! 
+
+This is a native port rewritten to support the Windows API, featuring the same "Cyberpunk HUD" aesthetic but optimized for the Windows ecosystem.
+
+### Key Features
+*   **Native Performance:** Compiled to C++ (via Nuitka) for instant startup and low resource usage.
+*   **Thermal Monitoring:** Integrated **LibreHardwareMonitor** bridge for reading CPU/GPU temps and fan speeds.
+*   **Safe & Secure:** Built to avoid antivirus false-positives common with other Python tools.
+
+👉 **[Download Taskwire for Windows (v1.0)](https://github.com/majoraexp/Taskwire/releases)**  
+*(Look for `Taskwire-Windows-v1.0.zip` in the latest release assets)*
+
+For build instructions or source code, see the **[Windows Port Directory](Windows_port_Nuitka/README.md)**.
+
 ## 🎨 Credits
 *   **Theme:** Inspired by the [Dracula Theme](https://draculatheme.com/).
 *   **Icons:** Procedurally generated via Python/Pillow.
