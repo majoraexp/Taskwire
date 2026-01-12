@@ -128,7 +128,7 @@ Useful for quick local builds without Docker.
 
 See [COMPATIBILITY_GUIDE.md](COMPATIBILITY_GUIDE.md) for more details.
 
-## 🪟 Taskwire for Windows
+## Taskwire for Windows
 
 Taskwire is now available for Windows 10/11! 
 
@@ -139,19 +139,19 @@ This is a native port rewritten to support the Windows API, featuring the same "
 *   **Thermal Monitoring:** Integrated **LibreHardwareMonitor** bridge for reading CPU/GPU temps and fan speeds.
 *   **Safe & Secure:** Built to avoid antivirus false-positives common with other Python tools.
 
-👉 **[Download Taskwire for Windows (v1.0)](https://github.com/majoraexp/Taskwire/releases)**  
+**[Download Taskwire for Windows (v1.0)](https://github.com/majoraexp/Taskwire/releases)**  
 *(Look for `Taskwire-Windows-v1.0.zip` in the latest release assets)*
 
 For build instructions, see the **[Release Page](https://github.com/majoraexp/Taskwire/releases)**.
 
-## 🎨 Credits
+## Credits
 *   **Theme:** Inspired by the [Dracula Theme](https://draculatheme.com/).
 *   **Icons:** Procedurally generated via Python/Pillow.
 
-## 🤝 Contributing
+## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to this project.
 
-## 📄 License
+## License
 
 GNU General Public License v3.0
