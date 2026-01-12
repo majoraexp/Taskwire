@@ -142,7 +142,7 @@ This is a native port rewritten to support the Windows API, featuring the same "
 👉 **[Download Taskwire for Windows (v1.0)](https://github.com/majoraexp/Taskwire/releases)**  
 *(Look for `Taskwire-Windows-v1.0.zip` in the latest release assets)*
 
-For build instructions or source code, see the **[Windows Port Directory](Windows_port_Nuitka/README.md)**.
+For build instructions, see the **[Release Page](https://github.com/majoraexp/Taskwire/releases)**.
 
 ## 🎨 Credits
 *   **Theme:** Inspired by the [Dracula Theme](https://draculatheme.com/).
