@@ -3,12 +3,15 @@ import os
 from PIL import Image
 
 def convert():
-    # Look for icon in the local Taskwire source directory
-    source = os.path.join("Taskwire", "app_icon.png")
+    # Look for icon in the local Taskwire source directory or root
+    source = "app_icon.png"
+    if not os.path.exists(source):
+        source = os.path.join("Taskwire", "app_icon.png")
+    
     dest = "app_icon.ico"
     
     if not os.path.exists(source):
-        print(f"Error: Source icon not found at {source}")
+        print(f"Error: Source icon not found at {source} or ./app_icon.png")
         sys.exit(1)
         
     print(f"Converting {source} to {dest}...")

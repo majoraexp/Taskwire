@@ -53,6 +53,18 @@ pip install nuitka ordered-set zstandard Pillow
 
 :: 5. Prepare Assets
 echo [5/6] Preparing assets...
+
+:: Find Icon Path
+set ICON_PATH=app_icon.png
+if not exist "%ICON_PATH%" (
+    set ICON_PATH=Taskwire\app_icon.png
+)
+if not exist "%ICON_PATH%" (
+    echo Error: app_icon.png not found in root or Taskwire subdirectory!
+    pause
+    exit /b 1
+)
+
 python convert_icon.py
 if !errorlevel! neq 0 (
     echo Error: Icon conversion failed.
@@ -71,7 +83,7 @@ nuitka ^
     --windows-console-mode=disable ^
     --windows-uac-admin ^
     --windows-icon-from-ico=app_icon.ico ^
-    --include-data-file=Taskwire\app_icon.png=app_icon.png ^
+    --include-data-file=%ICON_PATH%=app_icon.png ^
     --output-dir=output_onedir ^
     --output-filename=Taskwire.exe ^
     --no-pyi-file ^
