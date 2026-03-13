@@ -11,7 +11,7 @@
 
 > **📥 [Download the latest standalone executable (No Python required)] (Now compiled in C++!) https://github.com/majoraexp/Taskwire/releases)**
 
-![Taskwire Dashboard](taskwire_dashboard.png)
+![Taskwire Dashboard](taskwire_dashboard.png?v=1.53)
 
 ![Taskwire Processes](taskwire_processTab.png)
 *The Process Manager with normalized memory tracking.*
