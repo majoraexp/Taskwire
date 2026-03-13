@@ -6,6 +6,10 @@ widget with custom drawing and styling.
 """
 import math
 import time
+import re
+import html
+import subprocess
+import shutil
 from collections import deque
 
 from PyQt6.QtCore import Qt, QRectF, QSize, QPointF, QPoint, QEvent
@@ -18,7 +22,8 @@ from PyQt6.QtWidgets import (
     QProgressBar, QFrame, QGridLayout, QTableWidget, 
     QTableWidgetItem, QHeaderView, QAbstractItemView,
     QPushButton, QMessageBox, QLineEdit, QAbstractButton,
-    QMenu, QStackedWidget, QDialog, QCheckBox, QDialogButtonBox, QHeaderView
+    QMenu, QStackedWidget, QDialog, QCheckBox, QDialogButtonBox, QHeaderView,
+    QSizePolicy
 )
 
 from .styles import ModernTheme
@@ -132,7 +137,8 @@ class CircularGauge(QWidget):
         self.percent = 0
         self.used_gb = 0
         self.total_gb = 0
-        self.setMinimumSize(200, 200) # Reverted to a slightly larger size for readability
+        self.setMinimumSize(160, 160) # Reduced to 160 for tighter layouts
+        self.setMaximumSize(160, 160) # Force fixed size to prevent expansion
         self.setMouseTracking(True)
         self.hover_section = None # 'used', 'free', or None
         self.tooltip_widget = GameTooltip()
@@ -157,7 +163,7 @@ class CircularGauge(QWidget):
         """
         rect = self.rect()
         # Same size calculation as paintEvent
-        size = min(rect.width(), rect.height()) - 40 # Increased padding for text
+        size = min(rect.width(), rect.height()) - 20 # Reduced padding
         radius = size / 2
         center = rect.center()
         
@@ -207,6 +213,13 @@ class CircularGauge(QWidget):
             self.tooltip_widget.hide()
         
         super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):  # pylint: disable=C0103
+        if self.hover_section is not None:
+            self.hover_section = None
+            self.update()
+        self.tooltip_widget.hide()
+        super().leaveEvent(event)
 
     def paintEvent(self, event): # pylint: disable=C0103,W0613
         """
@@ -277,9 +290,9 @@ class CircularGauge(QWidget):
                              text)
 
         # Percentage (Main, large text in center)
-        draw_internal_text(f"{self.percent:.1f}%", -10, 24, bold=True)
+        draw_internal_text(f"{self.percent:.1f}%", -10, 20, bold=True) # Reduced font size
         # Used GiB (Smaller text below percentage)
-        draw_internal_text(f"{self.used_gb:.1f} GiB", 25, 14, bold=True)
+        draw_internal_text(f"{self.used_gb:.1f} GiB", 25, 12, bold=True) # Reduced font size
 
 class TempGraphWidget(Card):
     """
@@ -311,7 +324,7 @@ class TempGraphWidget(Card):
         self.graph_area.setMouseTracking(True)
         self.graph_area.installEventFilter(self)
         self.layout.addWidget(self.graph_area, 1)
-        
+
         # Legend / Values area
         self.legend_layout = QGridLayout()
         self.legend_layout.setContentsMargins(0, 5, 0, 0)
@@ -547,55 +560,97 @@ class TempGraphWidget(Card):
 
         # Draw Lines
         step_x = w / (self.maxlen - 1)
-        
+
+        # Find the transition index and draw a multicolored vertical line
+        # Each segment matches the sensor color, ordered from lowest to highest value
+        transition_idx = None
+        transition_sensors = []  # list of (value, color)
+        for idx, (name, points_deque) in enumerate(self.history.items()):
+            points = list(points_deque)
+            for j, val in enumerate(points):
+                if val is not None:
+                    if transition_idx is None or j < transition_idx:
+                        transition_idx = j
+                    color = self.colors[idx % len(self.colors)]
+                    transition_sensors.append((val, color))
+                    break
+        if transition_idx is not None and transition_idx > 0 and transition_sensors:
+            tx = transition_idx * step_x
+            baseline_y = top_margin + graph_h
+            # Sort by value so lowest color is at bottom, highest at top
+            transition_sensors.sort(key=lambda x: x[0])
+            prev_y = baseline_y
+            for val, color in transition_sensors:
+                norm = (val - min_temp) / temp_range
+                norm = max(0.0, min(1.0, norm))
+                cur_y = top_margin + graph_h - (norm * graph_h)
+                painter.setPen(QPen(color, 2))
+                painter.drawLine(int(tx), int(prev_y), int(tx), int(cur_y))
+                prev_y = cur_y
+
         for i, (name, points_deque) in enumerate(self.history.items()):
             if len(points_deque) < 2: continue
             
             points = list(points_deque)
-            path = QPainterPath()
-            
-            has_started = False
-            
-            for j, val in enumerate(points):
-                if val is None:
-                    has_started = False
-                    continue
+            color = self.colors[i % len(self.colors)]
 
+            # Build separate paths for unfilled (None) and real data segments
+            unfilled_path = QPainterPath()
+            real_path = QPainterPath()
+            prev_was_none = True
+            prev_was_real = True
+
+            for j, val in enumerate(points):
                 x = j * step_x
-                norm = (val - min_temp) / temp_range
+                v = val if val is not None else 0
+                norm = (v - min_temp) / temp_range
                 norm = max(0.0, min(1.0, norm))
                 y = top_margin + graph_h - (norm * graph_h)
-                
-                if not has_started:
-                    path.moveTo(x, y)
-                    has_started = True
+
+                if val is None:
+                    if prev_was_none:
+                        unfilled_path.lineTo(x, y) if j > 0 else unfilled_path.moveTo(x, y)
+                    else:
+                        unfilled_path.moveTo(x, y)
+                    prev_was_none = True
+                    prev_was_real = False
                 else:
-                    path.lineTo(x, y)
-            
-            color = self.colors[i % len(self.colors)]
-            pen = QPen(color, 2)
-            painter.setPen(pen)
+                    if prev_was_real:
+                        real_path.lineTo(x, y) if j > 0 else real_path.moveTo(x, y)
+                    else:
+                        # Start from baseline at this x so it flows from the vertical line
+                        baseline_y = top_margin + graph_h
+                        real_path.moveTo(x, baseline_y)
+                        real_path.lineTo(x, y)
+                    prev_was_real = True
+                    prev_was_none = False
+
+            # Draw unfilled segments in cyan (matching CPU history graph)
+            painter.setPen(QPen(QColor(ModernTheme.ACCENT_CYAN), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(path)
+            painter.drawPath(unfilled_path)
+
+            # Draw real data segments in sensor color
+            painter.setPen(QPen(color, 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(real_path)
             
             # Draw Hover Dot
             if self.hover_index != -1 and self.hover_index < len(points):
                 val = points[self.hover_index]
-                
-                if val is not None:
-                    # Recalculate position
-                    hx = self.hover_index * step_x
-                    norm = (val - min_temp) / temp_range
-                    norm = max(0.0, min(1.0, norm))
-                    hy = top_margin + graph_h - (norm * graph_h)
-                    
-                    # Draw Vertical Line
-                    painter.setPen(QPen(QColor(ModernTheme.BORDER_COLOR), 1, Qt.PenStyle.DashLine))
-                    painter.drawLine(int(hx), 0, int(hx), int(h - bottom_margin)) # Line down to axis
+                v = val if val is not None else 0
+                hx = self.hover_index * step_x
+                norm = (v - min_temp) / temp_range
+                norm = max(0.0, min(1.0, norm))
+                hy = top_margin + graph_h - (norm * graph_h)
 
-                    painter.setBrush(QBrush(color))
-                    painter.setPen(Qt.PenStyle.NoPen)
-                    painter.drawEllipse(QPointF(hx, hy), 4, 4)
+                # Draw Vertical Line
+                painter.setPen(QPen(QColor(ModernTheme.BORDER_COLOR), 1, Qt.PenStyle.DashLine))
+                painter.drawLine(int(hx), 0, int(hx), int(h - bottom_margin))
+
+                painter.setBrush(QBrush(color))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawEllipse(QPointF(hx, hy), 4, 4)
 
 class CpuHistoryWidget(Card):
     """
@@ -612,20 +667,20 @@ class CpuHistoryWidget(Card):
         self.maxlen = history_duration
         self.update_interval = 0
         self.last_update_time = 0
-        self.data_points = deque([0]*self.maxlen, maxlen=self.maxlen)
-        
+        self.data_points = deque([None]*self.maxlen, maxlen=self.maxlen)
+
         self.graph_area = QWidget()
         self.graph_area.setMinimumHeight(150)
         self.graph_area.paintEvent = self.paint_graph
         self.graph_area.setMouseTracking(True)
         self.graph_area.installEventFilter(self)
-        self.layout.addWidget(self.graph_area)
-        
+        self.layout.addWidget(self.graph_area, 1)
+
         # Tooltip State
         self.tooltip_widget = GameTooltip(self.graph_area)
         self.hover_index = -1
         self.hover_pos = QPoint()
-        
+
     def set_duration(self, seconds, interval=0):
         """
         Sets the duration (in seconds) for which CPU history is maintained.
@@ -638,7 +693,7 @@ class CpuHistoryWidget(Card):
         self.update_interval = interval
         
         # Reset deque to avoid mixed time-scales
-        self.data_points = deque([0]*self.maxlen, maxlen=self.maxlen)
+        self.data_points = deque([None]*self.maxlen, maxlen=self.maxlen)
         self.graph_area.update()
         
     def update_data(self, cpu_percent):
@@ -680,7 +735,10 @@ class CpuHistoryWidget(Card):
                 time_str = format_time_offset(seconds_ago)
                 
                 val = self.data_points[self.hover_index]
-                self.tooltip_widget.update_info(f"Time: -{time_str}\nCPU: {val:.1f}%")
+                if val is None:
+                    self.tooltip_widget.update_info(f"Time: -{time_str}\nCPU: NA")
+                else:
+                    self.tooltip_widget.update_info(f"Time: -{time_str}\nCPU: {val:.1f}%")
 
     def refresh_theme(self):
         """Refreshes the widget's colors based on the current ModernTheme."""
@@ -716,7 +774,10 @@ class CpuHistoryWidget(Card):
 
                 # Update Tooltip
                 val = self.data_points[index]
-                self.tooltip_widget.update_info(f"Time: -{time_str}\nCPU: {val:.1f}%")
+                if val is None:
+                    self.tooltip_widget.update_info(f"Time: -{time_str}\nCPU: NA")
+                else:
+                    self.tooltip_widget.update_info(f"Time: -{time_str}\nCPU: {val:.1f}%")
                 
                 # Position Tooltip (Global Coords)
                 global_pos = self.graph_area.mapToGlobal(event.pos())
@@ -791,7 +852,8 @@ class CpuHistoryWidget(Card):
         
         for i, val in enumerate(points):
             x = i * step_x
-            y = graph_h - (val / 100 * graph_h)
+            v = val if val is not None else 0
+            y = graph_h - (v / 100 * graph_h)
             path.lineTo(x, y)
             
         path.lineTo(width, graph_h) # Bottom-right
@@ -810,9 +872,10 @@ class CpuHistoryWidget(Card):
         # Draw Hover Dot
         if self.hover_index != -1 and self.hover_index < len(points):
             val = points[self.hover_index]
+            v = val if val is not None else 0
             hx = self.hover_index * step_x
-            hy = graph_h - (val / 100 * graph_h)
-            
+            hy = graph_h - (v / 100 * graph_h)
+
             # Draw Vertical Line
             painter.setPen(QPen(QColor(ModernTheme.BORDER_COLOR), 1, Qt.PenStyle.DashLine))
             painter.drawLine(int(hx), 0, int(hx), int(graph_h))
@@ -823,7 +886,7 @@ class CpuHistoryWidget(Card):
 
         # Draw Current Value Text (Overlay at Bottom Right)
         current_val = points[-1]
-        text = f"{current_val:.1f}%"
+        text = f"{current_val:.1f}%" if current_val is not None else "NA"
         
         font = QFont()
         font.setPointSize(24)
@@ -933,6 +996,130 @@ class CpuWidget(Card):
                 else:
                     freq_lbl.setText("")
 
+class MemoryAllocationBar(QWidget):
+    """
+    A segmented horizontal bar showing memory allocation breakdown:
+    App Memory, Buffers, Cache, Free. Hover each segment for a tooltip.
+    """
+    _SEGS = [
+        ("App Memory", "ACCENT_RED"),
+        ("Buffers",    "ACCENT_PURPLE"),
+        ("Cache",      "ACCENT_BLUE"),
+        ("Free",       "ACCENT_GREEN"),
+    ]
+    _BAR_H    = 16
+    _LEGEND_H = 38
+
+    def __init__(self):
+        super().__init__()
+        self.setMouseTracking(True)
+        self.values = [0, 0, 0, 0]
+        self.total  = 1
+        self._tooltip = GameTooltip(self)
+        self._hover   = None
+        self._legend_font = QFont()
+        self._legend_font.setPointSize(8)
+        self.setMinimumWidth(190)
+        total_h = self._BAR_H + self._LEGEND_H
+        self.setMinimumHeight(total_h)
+        self.setMaximumHeight(total_h)
+
+    def set_data(self, total, used, buffers, cached, free):
+        self.total  = max(total, 1)
+        self.values = [used, buffers, cached, free]
+        self.update()
+
+    def _widths(self):
+        w = max(self.width(), 1)
+        return [(v / self.total) * w for v in self.values]
+
+    def mouseMoveEvent(self, event):  # pylint: disable=C0103
+        px, x, new_hover = event.pos().x(), 0.0, None
+        for i, sw in enumerate(self._widths()):
+            if x <= px < x + sw:
+                new_hover = i
+                pct = (self.values[i] / self.total) * 100
+                gib = self.values[i] / (1024 ** 3)
+                self._tooltip.update_info(f"{self._SEGS[i][0]}: {pct:.1f}% ({gib:.2f} GiB)")
+                gp = event.globalPosition().toPoint()
+                self._tooltip.move(gp + QPoint(20, 20))
+                self._tooltip.show()
+                break
+            x += sw
+        if new_hover is None:
+            self._tooltip.hide()
+        if new_hover != self._hover:
+            self._hover = new_hover
+            self.update()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):  # pylint: disable=C0103
+        if self._hover is not None:
+            self._hover = None
+            self.update()
+        self._tooltip.hide()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):  # pylint: disable=C0103,W0613
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect    = self.rect()
+        widths  = self._widths()
+
+        # Clip all segments to a rounded bar shape
+        clip = QPainterPath()
+        clip.addRoundedRect(QRectF(0, 0, rect.width(), self._BAR_H), 4, 4)
+        painter.setClipPath(clip)
+
+        # Background fill handles any gap from slab/overhead not in the four segments
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(ModernTheme.ALTERNATE_TABLE_BG)))
+        painter.drawRect(QRectF(0, 0, rect.width(), self._BAR_H))
+
+        x = 0.0
+        for i, sw in enumerate(widths):
+            if sw < 0.5:
+                x += sw
+                continue
+            color = QColor(getattr(ModernTheme, self._SEGS[i][1]))
+            if self._hover is not None:
+                color = color.lighter(120) if self._hover == i else color.darker(200)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(color))
+            painter.drawRect(QRectF(x, 0, sw, self._BAR_H))
+            x += sw
+
+        painter.setClipping(False)
+
+        # 2×2 legend grid below the bar
+        painter.setFont(self._legend_font)
+        fm      = painter.fontMetrics()
+        top     = self._BAR_H + 5
+
+        for i, (label, attr) in enumerate(self._SEGS):
+            pct   = (self.values[i] / self.total) * 100
+            text  = f"{label}: {pct:.0f}%"
+            col, row = i % 2, i // 2
+
+            # Left-align column 0, right-align column 1
+            if col == 0:
+                lx = 0
+            else:
+                text_width = fm.horizontalAdvance(text)
+                lx = rect.width() - (9 + text_width)
+
+            ly = top + row * (fm.height() + 2)
+            color = QColor(getattr(ModernTheme, attr))
+
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(color))
+            dot_y = ly + (fm.height() - 6) / 2
+            painter.drawEllipse(QRectF(lx, dot_y, 6, 6))
+
+            painter.setPen(QColor(ModernTheme.TEXT_PRIMARY))
+            painter.drawText(int(lx + 9), int(ly + fm.ascent()), text)
+
+
 class MemoryWidget(Card):
     """
     A widget to display system memory usage using a circular gauge and text labels.
@@ -942,6 +1129,7 @@ class MemoryWidget(Card):
         Initializes the MemoryWidget.
         """
         super().__init__("Memory Usage")
+        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         
         # Labels for text above and below the gauge
         self.used_label_top = QLabel("Used Physical Memory")
@@ -950,19 +1138,29 @@ class MemoryWidget(Card):
         self.layout.addWidget(self.used_label_top)
 
         self.gauge = CircularGauge()
-        self.layout.addWidget(self.gauge)
-        self.layout.setAlignment(Qt.AlignmentFlag.AlignCenter) # Center the gauge visually
+        self.layout.addWidget(self.gauge, 0, Qt.AlignmentFlag.AlignHCenter)
 
         self.total_label_bottom = QLabel("") # Will set text in update_data
         self.total_label_bottom.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.total_label_bottom.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY}; font-size: 11px;") # Brighter white
         self.layout.addWidget(self.total_label_bottom)
 
+        # Memory allocation breakdown bar
+        self.alloc_label = QLabel("Memory Allocation")
+        self.alloc_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.alloc_label.setStyleSheet(f"color: {ModernTheme.TEXT_SECONDARY}; font-size: 10px; margin-top: 6px;")
+        self.layout.addWidget(self.alloc_label)
+
+        self.alloc_bar = MemoryAllocationBar()
+        self.layout.addWidget(self.alloc_bar)
+
     def refresh_theme(self):
         """Refreshes the widget's colors based on the current ModernTheme."""
         self.used_label_top.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY}; font-size: 11px;")
         self.total_label_bottom.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY}; font-size: 11px;")
+        self.alloc_label.setStyleSheet(f"color: {ModernTheme.TEXT_SECONDARY}; font-size: 10px; margin-top: 6px;")
         self.gauge.update()
+        self.alloc_bar.update()
 
     def update_data(self, stats):
         """
@@ -977,6 +1175,13 @@ class MemoryWidget(Card):
         self.gauge.set_data(stats['percent'], used_gb, total_gb)
         self.used_label_top.setText("Used Physical Memory")
         self.total_label_bottom.setText(f"{total_gb:.1f} GiB Total Physical Memory")
+        self.alloc_bar.set_data(
+            stats['total'],
+            stats['used'],
+            stats.get('buffers', 0),
+            stats.get('cached', 0),
+            stats.get('free', 0),
+        )
 
 class ModernDriveIcon(QAbstractButton):
     """
@@ -1299,7 +1504,7 @@ class DiskIOWidget(Card):
         self.graph_area.paintEvent = self.paint_graph
         self.graph_area.setMouseTracking(True)
         self.graph_area.installEventFilter(self)
-        self.layout.addWidget(self.graph_area, 1) # Expand to fill space
+        self.layout.addWidget(self.graph_area, 1)
 
         # Tooltip State
         self.tooltip_widget = GameTooltip(self.graph_area)
@@ -1535,49 +1740,267 @@ class DiskIOWidget(Card):
             return f"{bytes_sec:.1f} B/s"
 
 class NetworkWidget(Card):
+    """
+    A widget to display network usage history (Upload/Download).
+    """
     def __init__(self):
-        """
-        Initializes the NetworkWidget.
-        """
         super().__init__("Network Speed")
+        
+        self.maxlen = 90
+        self.update_interval = 0
+        self.last_update_time = 0
+        self.up_history = deque([None]*self.maxlen, maxlen=self.maxlen)
+        self.down_history = deque([None]*self.maxlen, maxlen=self.maxlen)
+
+        # Labels Layout (Top - Left Aligned)
+        labels_layout = QHBoxLayout()
+        labels_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        labels_layout.setSpacing(20)
+        
         self.up_label = QLabel("Upload: 0 KB/s")
         self.down_label = QLabel("Download: 0 KB/s")
         
-        # Style
+        # Fixed width to prevent jitter
+        self.up_label.setFixedWidth(160)
+        self.down_label.setFixedWidth(160)
+        
         font = QFont()
-        font.setPointSize(12) # Reduced size
+        font.setPointSize(12)
         font.setBold(True)
         self.up_label.setFont(font)
         self.down_label.setFont(font)
         
-        self.up_label.setStyleSheet(f"color: {ModernTheme.ACCENT_CYAN}; ")
-        self.down_label.setStyleSheet(f"color: {ModernTheme.ACCENT_GREEN}; ")
+        # Colors: Upload (Green), Download (Red)
+        self.up_label.setStyleSheet(f"color: {ModernTheme.ACCENT_GREEN};")
+        self.down_label.setStyleSheet(f"color: {ModernTheme.ACCENT_RED};")
         
-        self.layout.addWidget(self.up_label)
-        self.layout.addWidget(self.down_label)
-        self.layout.addStretch()
+        labels_layout.addWidget(self.up_label)
+        labels_layout.addWidget(self.down_label)
+        
+        self.layout.addLayout(labels_layout)
+        
+        # Graph Area (Compact)
+        self.graph_area = QWidget()
+        self.graph_area.setMinimumHeight(75)
+        self.graph_area.paintEvent = self.paint_graph
+        self.graph_area.setMouseTracking(True)
+        self.graph_area.installEventFilter(self)
+        self.layout.addWidget(self.graph_area, 1)
+
+        # Tooltip
+        self.tooltip_widget = GameTooltip(self.graph_area)
+        self.hover_index = -1
+        self.hover_pos = QPoint()
 
     def refresh_theme(self):
         """Refreshes the widget's colors based on the current ModernTheme."""
-        self.up_label.setStyleSheet(f"color: {ModernTheme.ACCENT_CYAN}; ")
-        self.down_label.setStyleSheet(f"color: {ModernTheme.ACCENT_GREEN}; ")
+        self.up_label.setStyleSheet(f"color: {ModernTheme.ACCENT_GREEN};")
+        self.down_label.setStyleSheet(f"color: {ModernTheme.ACCENT_RED};")
+        self.graph_area.update()
+
+    def set_duration(self, seconds, interval=0):
+        self.maxlen = seconds
+        self.update_interval = interval
+        self.up_history = deque([None]*self.maxlen, maxlen=self.maxlen)
+        self.down_history = deque([None]*self.maxlen, maxlen=self.maxlen)
+        self.graph_area.update()
 
     def update_data(self, stats):
-        """
-        Updates the displayed upload and download speeds.
-
-        Args:
-            stats (dict): A dictionary containing network statistics,
-                          e.g., 'upload' and 'download' in bytes per second.
-        """
-        def format_speed(bytes_sec):
-            if bytes_sec > 1024**2:
-                return f"{bytes_sec / (1024**2):.1f} MB/s"
-            else:
-                return f"{bytes_sec / 1024:.1f} KB/s"
+        up_speed = stats['upload']
+        down_speed = stats['download']
         
-        self.up_label.setText(f"Upload: {format_speed(stats['upload'])}")
-        self.down_label.setText(f"Download: {format_speed(stats['download'])}")
+        self.up_label.setText(f"Upload: {self.format_speed(up_speed)}")
+        self.down_label.setText(f"Download: {self.format_speed(down_speed)}")
+        
+        # Throttle
+        now = time.time()
+        if self.update_interval > 0 and (now - self.last_update_time) < self.update_interval:
+            return
+
+        self.last_update_time = now
+        self.up_history.append(up_speed)
+        self.down_history.append(down_speed)
+
+        self.graph_area.update()
+        
+        # Update Tooltip
+        if self.tooltip_widget.isVisible() and self.hover_index != -1:
+            screen_idx = self.hover_index
+            offset = (self.maxlen - 1) - screen_idx
+            data_idx = (len(self.up_history) - 1) - offset
+            
+            interval = max(1, self.update_interval)
+            seconds_ago = (self.maxlen - 1 - self.hover_index) * interval
+            time_str = format_time_offset(seconds_ago)
+            
+            if 0 <= data_idx < len(self.up_history):
+                u_val = self.up_history[data_idx]
+                d_val = self.down_history[data_idx]
+                
+                u_str = self.format_speed(u_val) if u_val is not None else "NA"
+                d_str = self.format_speed(d_val) if d_val is not None else "NA"
+                
+                self.tooltip_widget.update_info(
+                    f"Time: -{time_str}\nUp: {u_str}\nDown: {d_str}"
+                )
+            else:
+                self.tooltip_widget.update_info(f"Time: -{time_str}\nUp: NA\nDown: NA")
+
+    def eventFilter(self, source, event):
+        if source == self.graph_area:
+            if event.type() == QEvent.Type.MouseMove:
+                if not self.up_history: return False
+                
+                rect = self.graph_area.rect()
+                x = event.pos().x()
+                width = rect.width()
+                
+                step_x = width / (self.maxlen - 1)
+                index = int(round(x / step_x))
+                index = max(0, min(index, self.maxlen - 1))
+                
+                self.hover_index = index
+                self.hover_pos = event.pos()
+                
+                # Update Tooltip Logic (Same as update_data)
+                screen_idx = self.hover_index
+                offset = (self.maxlen - 1) - screen_idx
+                data_idx = (len(self.up_history) - 1) - offset
+                
+                interval = max(1, self.update_interval)
+                seconds_ago = (self.maxlen - 1 - index) * interval
+                time_str = format_time_offset(seconds_ago)
+                
+                if 0 <= data_idx < len(self.up_history):
+                    u_val = self.up_history[data_idx]
+                    d_val = self.down_history[data_idx]
+                    u_str = self.format_speed(u_val) if u_val is not None else "NA"
+                    d_str = self.format_speed(d_val) if d_val is not None else "NA"
+                    self.tooltip_widget.update_info(f"Time: -{time_str}\nUp: {u_str}\nDown: {d_str}")
+                else:
+                    self.tooltip_widget.update_info(f"Time: -{time_str}\nUp: NA\nDown: NA")
+                
+                global_pos = self.graph_area.mapToGlobal(event.pos())
+                self.tooltip_widget.move(global_pos + QPoint(15, 15))
+                self.tooltip_widget.show()
+                self.graph_area.update()
+                
+            elif event.type() == QEvent.Type.Leave:
+                self.hover_index = -1
+                self.tooltip_widget.hide()
+                self.graph_area.update()
+                
+        return super().eventFilter(source, event)
+
+    def paint_graph(self, event):
+        painter = QPainter(self.graph_area)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        w = self.graph_area.width()
+        h = self.graph_area.height()
+        bottom_margin = 20
+        top_margin = 10
+        graph_h = h - bottom_margin - top_margin
+        
+        # Scaling
+        max_u = max((v for v in self.up_history if v is not None), default=0)
+        max_d = max((v for v in self.down_history if v is not None), default=0)
+        max_val = max(max_u, max_d)
+        if max_val == 0: max_val = 1024 * 10 # 10 KB/s min
+        
+        max_val = max_val * 1.2
+        
+        # Grid
+        grid_pen = QPen(QColor(ModernTheme.BORDER_COLOR))
+        grid_pen.setStyle(Qt.PenStyle.DotLine)
+        painter.setPen(grid_pen)
+        
+        for i in range(1, 4):
+            y = top_margin + graph_h - (i * (graph_h / 4))
+            painter.drawLine(0, int(y), w, int(y))
+            val_at_line = max_val * (i / 4)
+            painter.drawText(2, int(y) - 2, self.format_speed(val_at_line))
+            
+        # Time Axis
+        total_seconds = (self.maxlen - 1) * max(1, self.update_interval)
+        num_ticks = 6
+        tick_pen = QPen(QColor(ModernTheme.TEXT_SECONDARY))
+        painter.setPen(tick_pen)
+        font = QFont()
+        font.setPointSize(8)
+        painter.setFont(font)
+        
+        for i in range(num_ticks):
+            ratio = i / (num_ticks - 1)
+            x = ratio * w
+            seconds_ago = total_seconds * (1 - ratio)
+            time_str = format_time_offset(seconds_ago)
+            
+            flags = Qt.AlignmentFlag.AlignCenter
+            if i == 0: flags = Qt.AlignmentFlag.AlignLeft
+            elif i == num_ticks - 1: flags = Qt.AlignmentFlag.AlignRight
+            
+            text_rect = QRectF(x - 25, h - bottom_margin + 2, 50, 15)
+            if i == 0: text_rect = QRectF(0, h - bottom_margin + 2, 50, 15)
+            elif i == num_ticks - 1: text_rect = QRectF(w - 50, h - bottom_margin + 2, 50, 15)
+            
+            painter.drawText(text_rect, flags, time_str)
+            
+        # Draw Lines
+        # Upload (Green)
+        self.draw_line(painter, self.up_history, ModernTheme.ACCENT_GREEN, max_val, w, top_margin, graph_h, h)
+        # Download (Red)
+        self.draw_line(painter, self.down_history, ModernTheme.ACCENT_RED, max_val, w, top_margin, graph_h, h)
+
+    def draw_line(self, painter, data_deque, color_hex, max_val, w, top_margin, graph_h, h):
+        if len(data_deque) < 2: return
+        
+        path = QPainterPath()
+        step_x = w / (self.maxlen - 1)
+        points = list(data_deque)
+        num_points = len(points)
+        start_x = w - (num_points - 1) * step_x
+        
+        start_val = 0.0 if points[0] is None else points[0]
+        start_y = top_margin + graph_h - ((start_val / max_val) * graph_h)
+        path.moveTo(start_x, start_y)
+        
+        for i, val in enumerate(points):
+            draw_val = 0.0 if val is None else val
+            x = start_x + i * step_x
+            y = top_margin + graph_h - ((draw_val / max_val) * graph_h)
+            path.lineTo(x, y)
+            
+        pen = QPen(QColor(color_hex), 2)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
+        
+        # Hover Dot
+        if self.hover_index != -1:
+            screen_idx = self.hover_index
+            offset = (self.maxlen - 1) - screen_idx
+            data_idx = (len(points) - 1) - offset
+            
+            if 0 <= data_idx < len(points):
+                val = points[data_idx]
+                draw_val = 0.0 if val is None else val
+                
+                hx = screen_idx * step_x
+                hy = top_margin + graph_h - ((draw_val / max_val) * graph_h)
+                
+                painter.setPen(QPen(QColor(ModernTheme.BORDER_COLOR), 1, Qt.PenStyle.DashLine))
+                painter.drawLine(int(hx), 0, int(hx), int(h - 20)) # 20 is bottom margin
+
+                painter.setBrush(QBrush(QColor(color_hex)))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawEllipse(QPointF(hx, hy), 4, 4)
+
+    def format_speed(self, bytes_sec):
+        if bytes_sec >= 1024**3: return f"{bytes_sec / (1024**3):.1f} GB/s"
+        elif bytes_sec >= 1024**2: return f"{bytes_sec / (1024**2):.1f} MB/s"
+        elif bytes_sec >= 1024: return f"{bytes_sec / 1024:.1f} KB/s"
+        else: return f"{bytes_sec:.1f} B/s"
 
 class SortableTableWidgetItem(QTableWidgetItem):
     """
@@ -1874,36 +2297,29 @@ class ProcessListWidget(Card):
     def apply_table_theme(self, table):
         """Applies the current theme stylesheet to the table."""
         table.setStyleSheet(
-            """
+            f"""
             QTableWidget {{
-                background-color: {background_color};
-                alternate-background-color: {alternate_color};
-                gridline-color: {gridline_color};
+                background-color: {ModernTheme.WIDGET_BACKGROUND};
+                alternate-background-color: {ModernTheme.ALTERNATE_TABLE_BG};
+                gridline-color: {ModernTheme.BORDER_COLOR};
                 border: none;
             }}
             QHeaderView::section {{
-                background-color: {background_color};
-                color: {text_primary};
+                background-color: {ModernTheme.WIDGET_BACKGROUND};
+                color: {ModernTheme.TEXT_PRIMARY};
                 padding: 5px;
                 border: none;
-                border-bottom: 1px solid {border_color};
+                border-bottom: 1px solid {ModernTheme.BORDER_COLOR};
                 /* Custom paintSection handles the vertical separator */
             }}
             QTableWidget::item {{
                 padding: 5px;
             }}
             QTableWidget::item:selected {{
-                background-color: {accent_blue};
+                background-color: {ModernTheme.ACCENT_BLUE};
                 color: white;
             }}
-            """.format(
-                background_color=ModernTheme.WIDGET_BACKGROUND,
-                alternate_color=ModernTheme.ALTERNATE_TABLE_BG,
-                gridline_color=ModernTheme.BORDER_COLOR,
-                text_primary=ModernTheme.TEXT_PRIMARY,
-                border_color=ModernTheme.BORDER_COLOR,
-                accent_blue=ModernTheme.ACCENT_BLUE
-            )
+            """
         )
 
     def update_columns(self, mode):
@@ -2005,16 +2421,11 @@ class ProcessListWidget(Card):
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Select Metrics ({mode.capitalize()})")
         dialog.setStyleSheet(
+            f"""
+            QDialog {{ background-color: "{ModernTheme.APP_BACKGROUND}"; color: "{ModernTheme.TEXT_PRIMARY}"; }}
+            QCheckBox {{ color: "{ModernTheme.TEXT_PRIMARY}"; padding: 5px; }}
+            QPushButton {{ background-color: "{ModernTheme.WIDGET_BACKGROUND}"; color: "{ModernTheme.TEXT_PRIMARY}"; border: 1px solid "{ModernTheme.BORDER_COLOR}"; padding: 5px 15px; }}
             """
-            QDialog {{ background-color: "{app_background}"; color: "{text_primary}"; }}
-            QCheckBox {{ color: "{text_primary}"; padding: 5px; }}
-            QPushButton {{ background-color: "{widget_background}"; color: "{text_primary}"; border: 1px solid "{border_color}"; padding: 5px 15px; }}
-            """.format(
-                app_background=ModernTheme.APP_BACKGROUND,
-                text_primary=ModernTheme.TEXT_PRIMARY,
-                widget_background=ModernTheme.WIDGET_BACKGROUND,
-                border_color=ModernTheme.BORDER_COLOR,
-            )
         )
         
         layout = QVBoxLayout(dialog)
@@ -2108,7 +2519,7 @@ class ProcessListWidget(Card):
         Refreshes the currently active table view (grouped or detailed) with the latest data.
         
         Args:
-            maintain_selection (bool): Whether to preserve selection of specific items. Defaults to True.
+            maintain_selection (bool): Whether to preserve selection of specific items.
         """
         if self.view_mode == "grouped":
             self.update_grouped_table(maintain_selection)
@@ -2385,7 +2796,11 @@ class ProcessListWidget(Card):
         end_task_action = QAction("End Task (All Instances)", self)
         end_task_action.triggered.connect(lambda: self.kill_group(name))
         menu.addAction(end_task_action)
-        
+
+        force_kill_action = QAction("Force Kill (Admin)", self)
+        force_kill_action.triggered.connect(lambda: self.force_kill_group(name))
+        menu.addAction(force_kill_action)
+
         menu.exec(self.group_table.viewport().mapToGlobal(pos))
 
     def show_detail_context_menu(self, pos):
@@ -2422,7 +2837,13 @@ class ProcessListWidget(Card):
         end_tree_action = QAction("End Process Tree", self)
         end_tree_action.triggered.connect(lambda: self.kill_process_tree(pid, name))
         menu.addAction(end_tree_action)
-        
+
+        menu.addSeparator()
+
+        force_kill_action = QAction("Force Kill (Admin)", self)
+        force_kill_action.triggered.connect(lambda: self.force_kill_process(pid, name))
+        menu.addAction(force_kill_action)
+
         menu.exec(self.detail_table.viewport().mapToGlobal(pos))
 
     def kill_process(self, pid, name):
@@ -2442,67 +2863,249 @@ class ProcessListWidget(Card):
     def kill_process_tree(self, pid, name):
         """
         Prompts for confirmation and attempts to terminate a process and all its children.
+        Collects any AccessDenied PIDs and offers a single batched pkexec escalation.
 
         Args:
             pid (int): The PID of the parent process to terminate.
             name (str): The name of the parent process for display in the confirmation dialog.
         """
-        confirm = QMessageBox.question(self, "Confirm End Tree", 
+        confirm = QMessageBox.question(self, "Confirm End Tree",
                                      f"Are you sure you want to end the process tree for '{name}' (PID: {pid})?\nThis will terminate the process and all its children.",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if confirm == QMessageBox.StandardButton.Yes:
+            import psutil
             try:
-                import psutil
                 parent = psutil.Process(pid)
-                children = parent.children(recursive=True)
-                for child in children:
-                    self._kill_pid(child.pid, silent=True)
-                self._kill_pid(pid)
-                QMessageBox.information(self, "Success", f"Process tree for '{name}' terminated.")
+                all_pids = [child.pid for child in parent.children(recursive=True)] + [pid]
             except psutil.NoSuchProcess:
                 QMessageBox.warning(self, "Error", "Process no longer exists.")
+                return
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to kill tree: {e}")
+                return
+
+            killed = 0
+            denied_pids = []
+            for p in all_pids:
+                try:
+                    proc = psutil.Process(p)
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=1.5)
+                    except psutil.TimeoutExpired:
+                        proc.kill()
+                    killed += 1
+                except psutil.NoSuchProcess:
+                    pass
+                except psutil.AccessDenied:
+                    denied_pids.append(int(p))
+                except Exception:
+                    pass
+
+            if denied_pids:
+                escalate = QMessageBox.question(
+                    self, "Access Denied",
+                    f"Terminated {killed} process(es) in tree, but {len(denied_pids)} require admin privileges.\n\n"
+                    "Do you want to force kill them as admin?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                if escalate == QMessageBox.StandardButton.Yes:
+                    if self._force_kill_pids(denied_pids):
+                        killed += len(denied_pids)
+
+            QMessageBox.information(self, "Success", f"Process tree for '{name}' terminated ({killed} processes).")
 
     def kill_group(self, name):
         """
         Prompts for confirmation and attempts to terminate all processes with a given name.
+        Collects any AccessDenied PIDs and offers a single batched pkexec escalation.
 
         Args:
             name (str): The name of the processes to terminate.
         """
-        confirm = QMessageBox.question(self, "Confirm End Group", 
+        confirm = QMessageBox.question(self, "Confirm End Group",
                                      f"Are you sure you want to end ALL processes named '{name}'?",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if confirm == QMessageBox.StandardButton.Yes:
-            count = 0
+            import psutil
+            killed = 0
+            denied_pids = []
             for p in self.process_data:
                 if p['name'] == name:
-                    self._kill_pid(p['pid'], silent=True)
-                    count += 1
-            QMessageBox.information(self, "Success", f"Terminated {count} instances of '{name}'.")
+                    try:
+                        proc = psutil.Process(p['pid'])
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=1.5)
+                        except psutil.TimeoutExpired:
+                            proc.kill()
+                        killed += 1
+                    except psutil.NoSuchProcess:
+                        pass
+                    except psutil.AccessDenied:
+                        denied_pids.append(int(p['pid']))
+                    except Exception:
+                        pass
+
+            if denied_pids:
+                escalate = QMessageBox.question(
+                    self, "Access Denied",
+                    f"Terminated {killed} process(es), but {len(denied_pids)} require admin privileges.\n\n"
+                    "Do you want to force kill them as admin?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                if escalate == QMessageBox.StandardButton.Yes:
+                    if self._force_kill_pids(denied_pids):
+                        killed += len(denied_pids)
+            QMessageBox.information(self, "Success", f"Terminated {killed} instances of '{name}'.")
+
+    def force_kill_process(self, pid, name):
+        """
+        Prompts for confirmation and force kills a single process via pkexec.
+
+        Args:
+            pid (int): The PID of the process to force kill.
+            name (str): The name of the process for the confirmation dialog.
+        """
+        confirm = QMessageBox.question(
+            self, "Confirm Force Kill",
+            f"Are you sure you want to force kill '{name}' (PID: {pid}) as admin?\n\n"
+            "This will prompt for your password and send SIGKILL.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if confirm == QMessageBox.StandardButton.Yes:
+            self._force_kill_pid(int(pid))
+
+    def force_kill_group(self, name):
+        """
+        Prompts for confirmation and force kills all processes with a given name via pkexec.
+        Batches all PIDs into a single pkexec call so the user only authenticates once.
+
+        Args:
+            name (str): The name of the processes to force kill.
+        """
+        pids = [int(p['pid']) for p in self.process_data if p['name'] == name]
+        if not pids:
+            QMessageBox.warning(self, "Error", f"No processes named '{name}' found.")
+            return
+
+        confirm = QMessageBox.question(
+            self, "Confirm Force Kill Group",
+            f"Are you sure you want to force kill ALL {len(pids)} processes named '{name}' as admin?\n\n"
+            "This will prompt for your password.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if confirm == QMessageBox.StandardButton.Yes:
+            self._force_kill_pids(pids)
 
     def _kill_pid(self, pid, silent=False):
         """
-        Attempts to terminate a process by its PID.
+        Attempts to terminate a process by its PID with escalation.
+
+        Escalation order:
+        1. SIGTERM (graceful)
+        2. SIGKILL after 1.5s timeout (forceful)
+        3. On AccessDenied, prompt user for admin kill via pkexec
 
         Args:
             pid (int): The PID of the process to terminate.
             silent (bool): If True, suppresses QMessageBox pop-ups for success/failure.
                            Defaults to False.
         """
+        import psutil
         try:
-            import psutil
             p = psutil.Process(pid)
             p.terminate()
+            try:
+                p.wait(timeout=1.5)
+            except psutil.TimeoutExpired:
+                p.kill()
             if not silent:
                 QMessageBox.information(self, "Success", f"Process {pid} terminated.")
         except psutil.NoSuchProcess:
             if not silent: QMessageBox.warning(self, "Error", "Process no longer exists.")
         except psutil.AccessDenied:
-            if not silent: QMessageBox.critical(self, "Error", "Access Denied.")
+            if not silent:
+                confirm = QMessageBox.question(
+                    self, "Access Denied",
+                    f"Process {pid} requires administrator privileges to terminate.\n\n"
+                    "Do you want to force kill it as admin?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                if confirm == QMessageBox.StandardButton.Yes:
+                    self._force_kill_pid(int(pid))
         except Exception as e:
             if not silent: QMessageBox.critical(self, "Error", f"Could not terminate: {e}")
+
+    def _force_kill_pid(self, pid, silent=False):
+        """
+        Force kills a single process using pkexec for privilege escalation.
+
+        Args:
+            pid (int): The PID of the process to kill.
+            silent (bool): If True, suppresses QMessageBox pop-ups.
+
+        Returns:
+            bool: True if the process was successfully killed, False otherwise.
+        """
+        return self._force_kill_pids([int(pid)], silent=silent)
+
+    def _force_kill_pids(self, pids, silent=False):
+        """
+        Force kills one or more processes using a single pkexec call.
+        Batches all PIDs into one command so the user only authenticates once.
+
+        Args:
+            pids (list[int]): List of PIDs to kill.
+            silent (bool): If True, suppresses QMessageBox pop-ups.
+
+        Returns:
+            bool: True if pkexec returned success, False otherwise.
+        """
+        if not pids:
+            return False
+
+        pids = [int(p) for p in pids]
+
+        if not shutil.which("pkexec"):
+            if not silent:
+                QMessageBox.critical(
+                    self, "Error",
+                    "pkexec is not installed on this system.\n\n"
+                    "You can manually kill these processes from a terminal:\n"
+                    f"  sudo kill -9 {' '.join(str(p) for p in pids)}")
+            return False
+
+        kill_bin = shutil.which("kill") or "/usr/bin/kill"
+
+        try:
+            result = subprocess.run(
+                ["pkexec", kill_bin, "-9"] + [str(p) for p in pids],
+                capture_output=True, timeout=60)
+
+            if result.returncode == 0:
+                if not silent:
+                    QMessageBox.information(self, "Success",
+                        f"Force killed {len(pids)} process(es).")
+                return True
+            elif result.returncode == 126:
+                return False  # User dismissed the password dialog
+            elif result.returncode == 127:
+                if not silent:
+                    QMessageBox.warning(self, "Error", "Authentication was not granted.")
+                return False
+            else:
+                stderr = result.stderr.decode().strip()
+                if "No such process" in stderr or "no process found" in stderr.lower():
+                    if not silent:
+                        QMessageBox.warning(self, "Error", "Process no longer exists.")
+                elif not silent:
+                    QMessageBox.critical(
+                        self, "Error", f"Failed to kill process(es).\n{stderr}")
+                return False
+        except subprocess.TimeoutExpired:
+            if not silent:
+                QMessageBox.warning(self, "Timeout", "The authentication dialog timed out.")
+            return False
+        except Exception as e:
+            if not silent:
+                QMessageBox.critical(self, "Error", f"Failed to force kill: {e}")
+            return False
 
     # Kept for compatibility if called externally, though not used by internal buttons anymore
     def kill_selected_process(self):
@@ -2538,9 +3141,9 @@ class ModernGaugeWidget(Card):
         self.label_used_ext.hide()
 
         self.gauge_area = QWidget()
-        self.gauge_area.setMinimumHeight(140) # Reverted height, text is now outside
+        self.gauge_area.setMinimumHeight(140)
         self.gauge_area.paintEvent = self.paint_gauge
-        self.layout.addWidget(self.gauge_area)
+        self.layout.addWidget(self.gauge_area, 1)
         
         self.label_total_ext = QLabel()
         self.label_total_ext.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2616,10 +3219,10 @@ class ModernGaugeWidget(Card):
         
         w = self.gauge_area.width()
         h = self.gauge_area.height()
-        rect = self.gauge_area.rect()
+        # rect = self.gauge_area.rect() # Unused
         
         # Calculate size (keep square)
-        size = min(w, h) - 20 # Leave some padding for the circle
+        size = min(w, h) - 10 
         x = (w - size) / 2
         y = (h - size) / 2
         
@@ -2650,7 +3253,11 @@ class ModernGaugeWidget(Card):
             # Simple Centered
             line = self.text_lines_values[0]
             font = QFont()
-            font.setPointSize(line["size"])
+            # Scale font size based on gauge size?
+            # Base size 24 for 140px. Ratio ~ 0.17
+            dynamic_size = max(12, int(size * 0.18))
+            
+            font.setPointSize(dynamic_size)
             font.setBold(line["bold"])
             painter.setFont(font)
             painter.setPen(QColor(line["color"]))
@@ -2660,12 +3267,15 @@ class ModernGaugeWidget(Card):
             painter.drawText(int(cx - t_w/2), int(cy + fm.ascent()/2 - 5), line["text"])
             
         elif len(self.text_lines_values) == 2:
-            # Stacked detailed values (e.g., Used GiB, Total GiB)
-            offsets = [-15, 15] # Offset from center
+            # Stacked detailed values
+            # Scale font
+            dynamic_size = max(10, int(size * 0.12))
+            
+            offsets = [-int(size*0.1), int(size*0.1)] # Offset from center
             
             for i, line in enumerate(self.text_lines_values):
                 font = QFont()
-                font.setPointSize(line["size"])
+                font.setPointSize(dynamic_size)
                 font.setBold(line["bold"])
                 painter.setFont(font)
                 painter.setPen(QColor(line["color"]))
@@ -2674,11 +3284,14 @@ class ModernGaugeWidget(Card):
                 t_w = fm.horizontalAdvance(line["text"])
                 
                 # Draw Line Separator between the two values
-                if i == 1: # Draw line BEFORE the second value
+                if i == 1: 
                     sep_pen = QPen(QColor(ModernTheme.BORDER_COLOR), 1)
                     painter.setPen(sep_pen)
-                    painter.drawLine(int(cx - 30), int(cy - 2), int(cx + 30), int(cy - 2))
+                    line_len = int(size * 0.4)
+                    painter.drawLine(int(cx - line_len), int(cy - 2), int(cx + line_len), int(cy - 2))
                     painter.setPen(QColor(line["color"]))
+
+                painter.drawText(int(cx - t_w/2), int(cy + offsets[i] + fm.ascent()/2 - 5), line["text"])
 
 class FanGraphWidget(Card):
     """
@@ -2694,6 +3307,7 @@ class FanGraphWidget(Card):
         self.update_interval = 0
         self.last_update_time = 0
         self.history = {}
+        self.sensor_states = {} # name -> bool
         
         # Colors: Red, Blue, Cyan, Orange
         self.colors = [
@@ -2705,15 +3319,26 @@ class FanGraphWidget(Card):
         
         self.graph_area = QWidget()
         # Same height as the gauges to align nicely
-        self.graph_area.setMinimumHeight(100) 
+        self.graph_area.setMinimumHeight(100)
         self.graph_area.paintEvent = self.paint_graph
         self.graph_area.setMouseTracking(True)
         self.graph_area.installEventFilter(self)
-        self.layout.addWidget(self.graph_area)
+        self.layout.addWidget(self.graph_area, 1)
+
+        # Add No Data Label
+        self.no_data_label = QLabel("No Fans Detected")
+        self.no_data_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.no_data_label.setStyleSheet(f"color: {ModernTheme.TEXT_SECONDARY}; font-style: italic;")
+        self.no_data_label.hide()
+        
+        # Position it in the center of the graph area (overlay)
+        layout_overlay = QVBoxLayout(self.graph_area)
+        layout_overlay.addWidget(self.no_data_label)
+        layout_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # Legend
-        self.legend_layout = QHBoxLayout()
-        self.legend_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.legend_layout = QGridLayout()
+        self.legend_layout.setContentsMargins(0, 5, 0, 0)
         self.layout.addLayout(self.legend_layout)
         self.legend_labels = {} 
         
@@ -2755,18 +3380,31 @@ class FanGraphWidget(Card):
             fan_data (dict): A dictionary where keys are fan sensor names (str)
                              and values are their current RPMs (int).
         """
+        if not fan_data:
+            self.no_data_label.show()
+        else:
+            self.no_data_label.hide()
+            
         # Update Legend
         for i, (name, value) in enumerate(fan_data.items()):
+            # Default logic: Hide if 0
+            if name not in self.sensor_states:
+                self.sensor_states[name] = (value > 0)
+
             color = self.colors[i % len(self.colors)]
             color_hex = color.name()
             
-            display_text = f"<span style='color: {color_hex}; font-weight: bold;'>|</span> {name}: <span style='color: {ModernTheme.TEXT_PRIMARY}; font-weight: bold;'>{value} RPM</span>"
+            display_text = f"<span style='color: {color_hex}; font-weight: bold;'>|</span> {name}: <span style='color: {ModernTheme.TEXT_PRIMARY}; font-weight: bold;'>{int(value)} RPM</span>"
             
             if name not in self.legend_labels:
                 lbl = QLabel(display_text)
                 lbl.setTextFormat(Qt.TextFormat.RichText)
-                lbl.setStyleSheet("font-size: 12px; margin-right: 15px;")
-                self.legend_layout.addWidget(lbl)
+                lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
+                
+                row = i // 2
+                col = (i % 2) * 2
+                
+                self.legend_layout.addWidget(lbl, row, col, 1, 2)
                 self.legend_labels[name] = lbl
             else:
                 self.legend_labels[name].setText(display_text)
@@ -2781,11 +3419,13 @@ class FanGraphWidget(Card):
         # Update History
         for name, value in fan_data.items():
             if name not in self.history:
-                self.history[name] = deque([0]*self.maxlen, maxlen=self.maxlen)
+                self.history[name] = deque([None]*self.maxlen, maxlen=self.maxlen)
             self.history[name].append(value)
 
         self.graph_area.update()
+        self.update_tooltip()
 
+    def update_tooltip(self):
         # Update tooltip if visible
         if self.tooltip_widget.isVisible():
             rect = self.graph_area.rect()
@@ -2809,7 +3449,10 @@ class FanGraphWidget(Card):
                 for name, points in self.history.items():
                     if index < len(points):
                         val = points[index]
-                        tooltip_lines.append(f"{name}: {val} RPM")
+                        if val is None:
+                            tooltip_lines.append(f"{name}: NA")
+                        else:
+                            tooltip_lines.append(f"{name}: {val} RPM")
                 if tooltip_lines:
                     self.tooltip_widget.update_info("\n".join(tooltip_lines))
                 else:
@@ -2854,7 +3497,10 @@ class FanGraphWidget(Card):
                 for name, points in self.history.items():
                     if index < len(points):
                         val = points[index]
-                        tooltip_lines.append(f"{name}: {val} RPM")
+                        if val is None:
+                            tooltip_lines.append(f"{name}: NA")
+                        else:
+                            tooltip_lines.append(f"{name}: {val} RPM")
                 
                 if tooltip_lines:
                     self.tooltip_widget.update_info("\n".join(tooltip_lines))
@@ -2884,10 +3530,14 @@ class FanGraphWidget(Card):
         
         # Determine Max RPM for scaling
         max_rpm = 2000 # Default min max
-        for points in self.history.values():
+        for name, points in self.history.items():
             if points:
-                m = max(points)
-                if m > max_rpm: max_rpm = m
+                # Handle None
+                valid_points = [p for p in points if p is not None]
+                if valid_points:
+                    m = max(valid_points)
+                    if m > max_rpm:
+                        max_rpm = m
         
         # Add headroom
         max_rpm = int(max_rpm * 1.1)
@@ -2945,18 +3595,28 @@ class FanGraphWidget(Card):
         step_x = (w - 40) / (self.maxlen - 1)
         
         for i, (name, points_deque) in enumerate(self.history.items()):
+            if not self.sensor_states.get(name, False): continue
+            
             if len(points_deque) < 2: continue
             
             points = list(points_deque)
+            num_points = len(points)
+            step_x = (w - 40) / (self.maxlen - 1)
+            start_x = w - (num_points - 1) * step_x
+            
             path = QPainterPath()
             
             # Start
-            start_y = graph_h - (points[0] / max_rpm * graph_h)
+            start_val = 0.0 if points[0] is None else points[0]
+            start_y = graph_h - (start_val / max_rpm * graph_h)
             path.moveTo(40, start_y)
             
             for j, val in enumerate(points):
-                x = 40 + j * step_x
-                y = graph_h - (val / max_rpm * graph_h)
+                # Treat None as 0
+                draw_val = 0.0 if val is None else val
+                
+                x = start_x + j * step_x
+                y = graph_h - (draw_val / max_rpm * graph_h)
                 path.lineTo(x, y)
             
             color = self.colors[i % len(self.colors)]
@@ -2966,18 +3626,26 @@ class FanGraphWidget(Card):
             painter.drawPath(path)
             
             # Draw Dot if hovered
-            if self.hover_index != -1 and self.hover_index < len(points):
-                val = points[self.hover_index]
-                hx = 40 + self.hover_index * step_x
-                hy = graph_h - (val / max_rpm * graph_h)
+            if self.hover_index != -1:
+                screen_idx = self.hover_index
+                offset = (self.maxlen - 1) - screen_idx
+                data_idx = (len(points) - 1) - offset
                 
-                # Draw Vertical Line
-                painter.setPen(QPen(QColor(ModernTheme.BORDER_COLOR), 1, Qt.PenStyle.DashLine))
-                painter.drawLine(int(hx), 0, int(hx), int(graph_h))
+                if 0 <= data_idx < len(points):
+                    val = points[data_idx]
+                    # Treat None as 0
+                    draw_val = 0.0 if val is None else val
+                    
+                    hx = 40 + screen_idx * step_x
+                    hy = graph_h - (draw_val / max_rpm * graph_h)
+                    
+                    # Draw Vertical Line
+                    painter.setPen(QPen(QColor(ModernTheme.BORDER_COLOR), 1, Qt.PenStyle.DashLine))
+                    painter.drawLine(int(hx), 0, int(hx), int(graph_h))
 
-                painter.setBrush(QBrush(color))
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.drawEllipse(QPointF(hx, hy), 4, 4)
+                    painter.setBrush(QBrush(color))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawEllipse(QPointF(hx, hy), 4, 4)
 
 class TopPanelWidget(QWidget):
     """
@@ -2992,24 +3660,25 @@ class TopPanelWidget(QWidget):
         self.layout = QHBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(15)
-        
-        # CPU Gauge
+
+        # CPU Gauge (fixed width so it doesn't expand with the window)
         self.cpu_gauge = ModernGaugeWidget("CPU", ModernTheme.ACCENT_CYAN)
+        self.cpu_gauge.setFixedWidth(200)
         self.layout.addWidget(self.cpu_gauge)
-        
-        # GPU Gauge
+
+        # GPU Gauge (fixed width so it doesn't expand with the window)
         self.gpu_gauge = ModernGaugeWidget("GPU", ModernTheme.ACCENT_BLUE)
+        self.gpu_gauge.setFixedWidth(200)
         self.layout.addWidget(self.gpu_gauge)
-        
-        # Fan Graph Widget (Replaces Memory/Swap)
+
+        # Fan Graph Widget — expands to fill remaining space
         self.fan_widget = FanGraphWidget()
         self.layout.addWidget(self.fan_widget)
-        
-        # Set stretch factors to make Fan Graph take up more space (half the width)
-        # CPU: 1, GPU: 1, Fan: 2
-        self.layout.setStretch(0, 1)
-        self.layout.setStretch(1, 1)
-        self.layout.setStretch(2, 2)
+
+        # CPU and GPU stay fixed; Fan Graph stretches to fill remaining width
+        self.layout.setStretch(0, 0)
+        self.layout.setStretch(1, 0)
+        self.layout.setStretch(2, 1)
         
     def refresh_theme(self):
         """Refreshes the theme for all top panel widgets."""
@@ -3049,3 +3718,194 @@ class TopPanelWidget(QWidget):
                              and values are their current RPMs (int).
         """
         self.fan_widget.update_data(fan_data)
+
+class ToolsWidget(QWidget):
+    """
+    A widget that provides system tools and toggles, such as Caps Lock control.
+    """
+    def __init__(self):
+        super().__init__()
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(20, 20, 20, 20)
+        self.layout.setSpacing(20)
+
+        # Header
+        header = QLabel("System Tools")
+        header.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {ModernTheme.ACCENT_CYAN};")
+        self.layout.addWidget(header)
+
+        # Caps Lock Control Card
+        self.caps_card = Card("Input Devices")
+        self.caps_card.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
+        self.caps_layout = QHBoxLayout()
+        self.caps_card.layout.addLayout(self.caps_layout)
+
+        # Label
+        self.caps_label = QLabel("Caps Lock Status:")
+        self.caps_label.setStyleSheet(f"font-size: 16px; color: {ModernTheme.TEXT_PRIMARY};")
+        self.caps_layout.addWidget(self.caps_label)
+
+        # Status Text (Enabled/Disabled)
+        self.caps_status_text = QLabel("Checking...")
+        self.caps_status_text.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {ModernTheme.TEXT_SECONDARY};")
+        self.caps_layout.addWidget(self.caps_status_text)
+        
+        # Spacer
+        self.caps_layout.addSpacing(20)
+
+        # LED Indicator
+        self.caps_led = QWidget()
+        self.caps_led.setFixedSize(16, 16)
+        self.caps_led.setStyleSheet("border-radius: 8px; background-color: #444;") # Default off
+        self.caps_layout.addWidget(self.caps_led)
+        
+        # Spacer
+        self.caps_layout.addSpacing(10)
+
+        # Toggle Button
+        self.caps_btn = QPushButton("Enable/Disable Capslock")
+        self.caps_btn.setFixedSize(200, 40)
+        self.caps_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.caps_btn.clicked.connect(self.toggle_caps_lock)
+        self.caps_layout.addWidget(self.caps_btn)
+        
+        # Push everything to the left in the card
+        self.caps_layout.addStretch()
+
+        # Wrap Card in HBox to prevent horizontal stretching
+        card_row = QHBoxLayout()
+        card_row.addWidget(self.caps_card)
+        card_row.addStretch() # Push card to left
+        
+        self.layout.addLayout(card_row)
+        self.layout.addStretch() # Push everything up
+
+        # Initial Status Check
+        self.check_caps_status()
+
+    def refresh_theme(self):
+        """Refreshes the widget's colors based on the current ModernTheme."""
+        self.caps_card.setStyleSheet(f"background-color: {ModernTheme.WIDGET_BACKGROUND}; border: 1px solid {ModernTheme.BORDER_COLOR}; border-radius: 10px;")
+        self.caps_label.setStyleSheet(f"font-size: 16px; color: {ModernTheme.TEXT_PRIMARY};")
+        # Button styling
+        self.caps_btn.setStyleSheet(
+            f"QPushButton {{"
+            f"background-color: {ModernTheme.ALTERNATE_TABLE_BG};"
+            f"color: {ModernTheme.TEXT_PRIMARY};"
+            f"border: 1px solid {ModernTheme.ACCENT_PURPLE};"
+            f"border-radius: 5px;"
+            f"font-weight: bold;"
+            f"}}"
+            f"QPushButton:hover {{"
+            f"background-color: {ModernTheme.ACCENT_PURPLE};"
+            f"color: {ModernTheme.APP_BACKGROUND};"
+            f"}}"
+        )
+        # Re-apply status color
+        self.update_status_ui(self.is_caps_enabled)
+
+    def check_caps_status(self):
+        """
+        Checks if Caps Lock is disabled via config files (simulating the shell script logic).
+        """
+        import os
+        
+        # Logic: Assume Enabled unless we find 'caps:none' in configs
+        is_disabled = False
+        
+        # 1. Check KDE Config (~/.config/kxkbrc)
+        home = os.path.expanduser("~")
+        kxkb_file = os.path.join(home, ".config", "kxkbrc")
+        if os.path.exists(kxkb_file):
+            try:
+                with open(kxkb_file, "r") as f:
+                    content = f.read()
+                    if "caps:none" in content:
+                        is_disabled = True
+            except:
+                pass
+
+        # 2. Check GNOME (gsettings)
+        # Simple check using subprocess
+        if not is_disabled:
+            import subprocess
+            try:
+                # This might fail if gsettings not installed, that's fine
+                res = subprocess.run(
+                    ["gsettings", "get", "org.gnome.desktop.input-sources", "xkb-options"],
+                    capture_output=True, text=True
+                )
+                if res.returncode == 0 and "caps:none" in res.stdout:
+                    is_disabled = True
+            except:
+                pass
+        
+        self.is_caps_enabled = not is_disabled
+        self.update_status_ui(self.is_caps_enabled)
+
+    def update_status_ui(self, enabled):
+        """Updates the LED and text based on status."""
+        if enabled:
+            self.caps_status_text.setText("ENABLED")
+            self.caps_status_text.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {ModernTheme.ACCENT_GREEN};")
+            self.caps_led.setStyleSheet(f"border-radius: 8px; background-color: {ModernTheme.ACCENT_GREEN}; border: 2px solid #2f3640;")
+        else:
+            self.caps_status_text.setText("DISABLED")
+            self.caps_status_text.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {ModernTheme.ACCENT_RED};")
+            self.caps_led.setStyleSheet(f"border-radius: 8px; background-color: {ModernTheme.ACCENT_RED}; border: 2px solid #2f3640;")
+
+        # Apply button style (always same style, just needs refresh)
+        self.caps_btn.setStyleSheet(
+            f"QPushButton {{"
+            f"background-color: {ModernTheme.ALTERNATE_TABLE_BG};"
+            f"color: {ModernTheme.TEXT_PRIMARY};"
+            f"border: 1px solid {ModernTheme.ACCENT_PURPLE};"
+            f"border-radius: 5px;"
+            f"font-weight: bold;"
+            f"}}"
+            f"QPushButton:hover {{"
+            f"background-color: {ModernTheme.ACCENT_PURPLE};"
+            f"color: {ModernTheme.APP_BACKGROUND};"
+            f"}}"
+        )
+
+    def toggle_caps_lock(self):
+        """
+        Calls the caps_control.sh script using pkexec to toggle functionality.
+        """
+        import subprocess
+        import os
+        import sys
+        
+        # Determine script path
+        # Assuming script is at Taskwire/src/scripts/caps_control.sh relative to app root?
+        # Or relative to this file?
+        # This file is in Taskwire/src/
+        # Script is in Taskwire/src/scripts/
+        
+        base_path = os.path.dirname(os.path.abspath(__file__)) # Taskwire/src
+        script_path = os.path.join(base_path, "scripts", "caps_control.sh")
+        
+        if not os.path.exists(script_path):
+             # Fallback: Check relative to cwd
+             script_path = os.path.abspath(os.path.join("Taskwire", "src", "scripts", "caps_control.sh"))
+
+        action = "disable" if self.is_caps_enabled else "enable"
+        
+        cmd = ["pkexec", script_path, action]
+        
+        try:
+            # Run blocking or non-blocking? Blocking to update UI after.
+            subprocess.run(cmd, check=True)
+            
+            # Re-check status
+            self.check_caps_status()
+            
+            # Show message
+            QMessageBox.information(self, "Success", f"Caps Lock has been {action}d.\nA reboot is required for changes to fully take effect.")
+            
+        except subprocess.CalledProcessError:
+             QMessageBox.warning(self, "Error", "Failed to execute command. Did you cancel the authentication?")
+        except Exception as e:
+             QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
+

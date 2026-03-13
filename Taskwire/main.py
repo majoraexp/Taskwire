@@ -7,7 +7,6 @@ and connects the system monitoring backend to the frontend widgets.
 # pylint: disable=E0611, R0902, C0103
 import sys
 import os
-import threading
 from PyQt6.QtCore import QThread, QTimer, Qt
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QTabWidget,
@@ -19,7 +18,7 @@ from src.styles import ModernTheme
 from src.ui import (
     CpuWidget, MemoryWidget, ProcessListWidget, NetworkWidget,
     DiskWidget, CpuHistoryWidget, TempGraphWidget, TopPanelWidget,
-    DiskIOWidget
+    DiskIOWidget, ToolsWidget
 )
 from src.system_monitor import SystemWorker
 
@@ -29,19 +28,15 @@ def resource_path(relative_path):
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
-        # Nuitka (OneFile or Standalone) or Dev
-        # In Nuitka OneFile, assets are extracted to the temp dir with the script
-        base_path = os.path.dirname(os.path.abspath(__file__))
+        # Nuitka Standalone or Dev
+        if "__compiled__" in globals():
+            # In Nuitka standalone, resources are often next to the executable
+            base_path = os.path.dirname(sys.executable)
+        else:
+            # In dev mode, use the directory of the script
+            base_path = os.path.dirname(os.path.abspath(__file__))
 
     path = os.path.join(base_path, relative_path)
-    
-    # Fallback: If not found, check next to the executable (Side-car asset for Standalone)
-    if not os.path.exists(path):
-        base_path_exe = os.path.dirname(sys.executable)
-        path_exe = os.path.join(base_path_exe, relative_path)
-        if os.path.exists(path_exe):
-            return path_exe
-            
     # print(f"DEBUG: Resource Path Request: {relative_path} -> {path}")
     return path
 
@@ -82,7 +77,7 @@ class MainWindow(QMainWindow):
 
         # Dashboard Tab
         self.dashboard_tab = QWidget()
-        self.dashboard_layout = QGridLayout(self.dashboard_tab)
+        self.dashboard_layout = QVBoxLayout(self.dashboard_tab)
         self.dashboard_layout.setSpacing(15)
 
         # Scroll Area for Dashboard
@@ -97,10 +92,13 @@ class MainWindow(QMainWindow):
         self.process_widget = ProcessListWidget()
         self.tabs.addTab(self.process_widget, "Processes")
 
+        # Tools Tab
+        self.tools_widget = ToolsWidget()
+        self.tabs.addTab(self.tools_widget, "Tools")
+
         # Initialize Widgets (Created once)
         self.top_panel = TopPanelWidget() # Created here to ensure availability
         self.cpu_history = CpuHistoryWidget()
-        self.cpu_history.setMaximumHeight(200)
         
         # Global Duration Label
         self.duration_label = QLabel("Graph History: 90s")
@@ -117,6 +115,7 @@ class MainWindow(QMainWindow):
         self.cpu_history.set_duration(self.graph_duration + 1, default_interval)
         self.disk_io_widget.set_duration(self.graph_duration + 1, default_interval)
         self.temp_widget.set_duration(self.graph_duration + 1, default_interval)
+        self.net_widget.set_duration(self.graph_duration + 1, default_interval)
         self.top_panel.fan_widget.set_duration(self.graph_duration + 1, default_interval)
 
         self.update_dashboard_layout()
@@ -125,7 +124,6 @@ class MainWindow(QMainWindow):
         print("DEBUG: Starting SystemWorker...")
         self.worker = SystemWorker()
         
-        # Connect Signals
         self.worker.cpu_update.connect(self.cpu_widget.update_data)
         # Connect History Graph
         self.worker.cpu_update.connect(lambda overall, *_: self.cpu_history.update_data(overall))
@@ -141,11 +139,7 @@ class MainWindow(QMainWindow):
         self.worker.temp_update.connect(self.temp_widget.update_data)
         self.worker.disk_io_update.connect(self.disk_io_widget.update_data)
         
-        # Start the worker thread (Python threading)
-        # Nuitka compatibility: Use standard threading instead of QThread to avoid blocking main loop
-        self.worker_thread = threading.Thread(target=self.worker.start_monitoring, daemon=True)
-        self.worker_thread.start()
-        
+        self.worker.start()
         print("DEBUG: MainWindow.__init__ completed")
 
     def create_menu(self):
@@ -210,6 +204,7 @@ class MainWindow(QMainWindow):
         self.disk_io_widget.refresh_theme()
         self.top_panel.refresh_theme()
         self.process_widget.refresh_theme()
+        self.tools_widget.refresh_theme()
 
     def change_graph_duration(self):
         """
@@ -254,6 +249,7 @@ class MainWindow(QMainWindow):
             self.cpu_history.set_duration(new_maxlen, interval)
             self.disk_io_widget.set_duration(new_maxlen, interval)
             self.temp_widget.set_duration(new_maxlen, interval)
+            self.net_widget.set_duration(new_maxlen, interval)
             self.top_panel.fan_widget.set_duration(new_maxlen, interval)
 
     def set_layout_columns(self, cols):
@@ -292,55 +288,76 @@ class MainWindow(QMainWindow):
         while self.dashboard_layout.count():
             item = self.dashboard_layout.takeAt(0)
             if item.widget():
-                item.widget().setParent(None) # Remove from layout but object persists (refs held by self)
-                
-        
-        # Determine span for wide widgets
-        width_span = 1 if self.dashboard_columns == 1 else 2
+                item.widget().setParent(None)
+            elif item.layout():
+                # Recursively clear nested layouts if any (though takeAt removes the item)
+                # But item.layout() item needs deletion? 
+                # In PyQt, taking a layout item doesn't destroy it. 
+                # We need to be careful. Ideally we just unparent widgets.
+                # Since we are rebuilding from scratch, safe to let Python GC handle old layout objects 
+                # IF widgets are reparented.
+                while item.layout().count():
+                    sub_item = item.layout().takeAt(0)
+                    if sub_item.widget():
+                        sub_item.widget().setParent(None)
         
         # Row 0: Duration Label
-        self.dashboard_layout.addWidget(self.duration_label, 0, 0, 1, width_span)
+        self.dashboard_layout.addWidget(self.duration_label)
         
-        # Row 1: Top Panel (Always Full Width)
-        self.dashboard_layout.addWidget(self.top_panel, 1, 0, 1, width_span)
+        # Row 1: Top Panel
+        self.dashboard_layout.addWidget(self.top_panel)
         
-        # Row 2: CPU History (Always Full Width)
-        self.dashboard_layout.addWidget(self.cpu_history, 2, 0, 1, width_span)
+        # Row 2: CPU History
+        self.dashboard_layout.addWidget(self.cpu_history)
 
         if self.dashboard_columns == 1:
-            # Vertical Stack (Start at Row 3)
-            self.dashboard_layout.addWidget(self.mem_widget, 3, 0)
-            self.dashboard_layout.addWidget(self.temp_widget, 4, 0)
-            self.dashboard_layout.addWidget(self.disk_io_widget, 5, 0)
-            self.dashboard_layout.addWidget(self.net_widget, 6, 0)
-            self.dashboard_layout.addWidget(self.disk_widget, 7, 0)
-            self.dashboard_layout.addWidget(self.cpu_widget, 8, 0)
+            # Vertical Stack
+            self.dashboard_layout.addWidget(self.mem_widget)
+            self.dashboard_layout.addWidget(self.temp_widget)
+            self.dashboard_layout.addWidget(self.disk_io_widget)
+            self.dashboard_layout.addWidget(self.net_widget)
+            self.dashboard_layout.addWidget(self.disk_widget)
+            self.dashboard_layout.addWidget(self.cpu_widget)
         else:
-            # 2 Columns Balanced (Start at Row 3)
-            # Row 3: Memory | Temp + Disk IO
-            self.dashboard_layout.addWidget(self.mem_widget, 3, 0)
+            # 2 Columns - Decoupled Rows
             
-            # Shared container
-            container = QWidget()
-            layout = QHBoxLayout(container)
-            layout.setContentsMargins(0,0,0,0)
-            layout.setSpacing(15)
-            # Push everything up
-            layout.addWidget(self.temp_widget, 1)
-            layout.addWidget(self.disk_io_widget, 1)
+            # Row 3: Memory (Auto) | Temp + Disk IO (Expanded)
+            row3_layout = QHBoxLayout()
+            row3_layout.setSpacing(15)
             
-            self.dashboard_layout.addWidget(container, 3, 1)
+            # Memory Widget (Stretch 0)
+            row3_layout.addWidget(self.mem_widget, 0)
             
-            # Row 4: Network | Disk
-            self.dashboard_layout.addWidget(self.net_widget, 4, 0)
-            self.dashboard_layout.addWidget(self.disk_widget, 4, 1)
+            # Shared container for Temp and DiskIO
+            # To fill remaining width, we give this container Stretch 1
+            container_row3 = QWidget()
+            layout_row3 = QHBoxLayout(container_row3)
+            layout_row3.setContentsMargins(0,0,0,0)
+            layout_row3.setSpacing(15)
             
-            # Row 5: CPU Cores (Wide)
-            self.dashboard_layout.addWidget(self.cpu_widget, 5, 0, 1, 2)
+            # Inside the container, Temp and DiskIO split 50/50
+            layout_row3.addWidget(self.temp_widget, 1)
+            layout_row3.addWidget(self.disk_io_widget, 1)
+            
+            row3_layout.addWidget(container_row3, 1)
+            
+            self.dashboard_layout.addLayout(row3_layout)
+            
+            # Row 4: Network | Disk (Independent Widths)
+            row4_layout = QHBoxLayout()
+            row4_layout.setSpacing(15)
+            
+            # Currently 50/50 split (1:1 stretch)
+            row4_layout.addWidget(self.net_widget, 1)
+            row4_layout.addWidget(self.disk_widget, 1)
+            
+            self.dashboard_layout.addLayout(row4_layout)
+            
+            # Row 5: CPU Cores
+            self.dashboard_layout.addWidget(self.cpu_widget)
         
-        # Adjust row stretch to keep things tight at top?
-        # QGridLayout handles it mostly fine. We can add a stretch at the end.
-        self.dashboard_layout.setRowStretch(10, 1) # Push everything up
+        # Add stretch to push everything up
+        self.dashboard_layout.addStretch()
 
     def closeEvent(self, event):
         """
@@ -348,17 +365,13 @@ class MainWindow(QMainWindow):
         Stops the system worker thread gracefully before the application exits.
         """
         self.worker.stop()
-        # We can't join the daemon thread easily, nor do we strictly need to.
-        # But if we wanted to wait:
-        # if self.worker_thread.is_alive():
-        #    self.worker_thread.join(timeout=1.0)
+        self.worker.quit()
+        self.worker.wait()
         event.accept()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setApplicationName("Taskwire")
-    from src.version import __version__
-    app.setApplicationVersion(__version__)
     app.setDesktopFileName("Taskwire")
     
     # Apply Theme

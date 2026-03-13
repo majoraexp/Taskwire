@@ -5,7 +5,7 @@ import time
 import psutil
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
 
-class SystemWorker(QObject):
+class SystemWorker(QThread):
     # Signals to update the UI
     cpu_update = pyqtSignal(float, list, list) # Overall %, List of per-core %, List of per-core freq
     memory_update = pyqtSignal(dict)     # Dictionary of memory stats (RAM + Swap)
@@ -46,7 +46,7 @@ class SystemWorker(QObject):
         self.procs = {} # Cache for Process objects
         self.cpu_ema = None # Exponential Moving Average for CPU
 
-    def start_monitoring(self):
+    def run(self):
         if getattr(self, '_loop_running', False):
             return
         self._loop_running = True
@@ -62,7 +62,7 @@ class SystemWorker(QObject):
         
         while self.running:
             # Sleep at start to ensure valid interval for first iteration
-            time.sleep(0.25)
+            QThread.msleep(250)
 
             # 1. CPU Stats
             # Use cpu_times_percent to get breakdown.
@@ -111,6 +111,9 @@ class SystemWorker(QObject):
                 "available": mem.available,
                 "percent": mem.percent,
                 "used": mem.used,
+                "buffers": getattr(mem, 'buffers', 0),
+                "cached": getattr(mem, 'cached', 0),
+                "free": mem.free,
                 "swap_total": swap.total,
                 "swap_used": swap.used,
                 "swap_percent": swap.percent
@@ -145,7 +148,7 @@ class SystemWorker(QObject):
                             parts = line.split()
                             if len(parts) >= 2:
                                 name = parts[0]
-                                if "zram" in name: # Exclude zram devices
+                                if "zram" in name or "loop" in name: # Exclude zram and loop devices
                                     continue
                                 size = int(parts[-1])
                                 model = " ".join(parts[1:-1]) if len(parts) > 2 else name

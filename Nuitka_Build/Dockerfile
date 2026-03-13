@@ -55,6 +55,6 @@ CMD ["python3", "-m", "nuitka", \
      "--include-data-file=app_icon.png=app_icon.png", \
      "--linux-icon=app_icon.png", \
      "--output-dir=dist", \
-     "--output-filename=Taskwire_Nuitka", \
+     "--output-filename=Taskwire", \
      "--no-pyi-file", \
      "main.py"]

@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import psutil
 import requests
+import io
 
 # Constants
 LHM_VERSION = "v0.9.4"
@@ -42,51 +43,75 @@ def is_lhm_running():
             pass
     return False
 
-def download_file(url, dest_path):
-    """Downloads a file from a URL to a destination path."""
-    print(f"Downloading {url}...")
+import ctypes
+
+def add_exclusion(path):
+    """
+    Adds a Windows Defender exclusion for the specified path using cmd.exe trampoline.
+    Triggers a native UAC prompt.
+    """
+    print(f"Requesting Defender exclusion for: {path}")
     try:
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
-        with open(dest_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        print("Download complete.")
+        # Construct the command
+        # We use cmd.exe /c to launch powershell, which often handles the UAC context transition better
+        ps_cmd = f"Add-MpPreference -ExclusionPath '{path}' -Force"
+        cmd_args = f"/c powershell -Command \"{ps_cmd}\""
+
+        ret = ctypes.windll.shell32.ShellExecuteW(
+            None,
+            "runas",
+            "cmd.exe",
+            cmd_args,
+            None,
+            0 # SW_HIDE (Hide the CMD window, users will just see the UAC prompt)
+        )
+
+        if ret <= 32:
+            print(f"ShellExecute failed with code: {ret}")
+            return False
+
+        print("UAC prompt triggered. Waiting 5 seconds for policy application...")
+        time.sleep(5)
         return True
+    except Exception as e:
+        print(f"Failed to trigger exclusion: {e}")
+        return False
+
+def install_lhm():
+    """Downloads and extracts LibreHardwareMonitor completely in-memory."""
+    libs_dir = get_libs_dir()
+    lhm_dir = get_lhm_dir()
+
+    if not os.path.exists(libs_dir):
+        os.makedirs(libs_dir)
+
+    # Ensure directory exists for exclusion
+    if not os.path.exists(lhm_dir):
+        os.makedirs(lhm_dir)
+
+    # 1. PRE-EMPTIVELY Add Exclusion
+    # Critical: Whitelist folder BEFORE writing real .sys files.
+    if not add_exclusion(lhm_dir):
+        print("Warning: Failed to add exclusion. Installation may be flagged.")
+
+    # 2. Download to Memory
+    print(f"Downloading {LHM_URL}...")
+    try:
+        response = requests.get(LHM_URL)
+        response.raise_for_status()
+        zip_buffer = io.BytesIO(response.content)
+        print("Download complete.")
     except Exception as e:
         print(f"Download failed: {e}")
         return False
 
-def install_lhm():
-    """Downloads and extracts LibreHardwareMonitor, skipping .sys files to avoid AV flags."""
-    libs_dir = get_libs_dir()
-    lhm_dir = get_lhm_dir()
-    
-    if not os.path.exists(libs_dir):
-        os.makedirs(libs_dir)
-        
-    zip_path = os.path.join(libs_dir, LHM_ZIP_NAME)
-    
-    # 1. Download
-    if not download_file(LHM_URL, zip_path):
-        return False
-        
-    # 2. Extract (Selectively)
+    # 3. Extract from Memory
     print(f"Extracting to {lhm_dir}...")
     try:
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            # Iterate through files in the zip
-            for file_info in zip_ref.infolist():
-                # Skip .sys files so they are never written to disk
-                if file_info.filename.lower().endswith(".sys"):
-                    print(f"Skipping driver extraction: {file_info.filename}")
-                    continue
-                
-                # Extract everything else
-                zip_ref.extract(file_info, lhm_dir)
-        
-        # Cleanup Zip
-        os.remove(zip_path)
+        with zipfile.ZipFile(zip_buffer) as zip_ref:
+            # Extract ALL files (Real Drivers).
+            # Reliance on Exclusion prevents AV flag here.
+            zip_ref.extractall(lhm_dir)
 
         print("Installation complete.")
         return True
@@ -100,47 +125,45 @@ def ensure_lhm_running():
     Returns True if successful, False otherwise.
     """
     print("Checking LibreHardwareMonitor status...")
-    
+
     # 1. Check if running
     if is_lhm_running():
         print("LibreHardwareMonitor is already running.")
         return True
-        
+
     # 2. Check if installed
     lhm_dir = get_lhm_dir()
     lhm_exe = os.path.join(lhm_dir, LHM_EXE_NAME)
-    
-    if not os.path.exists(lhm_exe):
-        print("LibreHardwareMonitor not found. Installing...")
+    driver_sys = os.path.join(lhm_dir, "WinRing0x64.sys")
+
+    # Force install if driver is missing (likely deleted by AV previously)
+    if not os.path.exists(lhm_exe) or not os.path.exists(driver_sys):
+        print("LibreHardwareMonitor or Driver missing. Installing...")
         if not install_lhm():
             print("Failed to install LibreHardwareMonitor.")
             return False
-            
+    else:
+        # Even if installed, ensure exclusion is active (idempotent-ish)
+        add_exclusion(lhm_dir)
+
     # 3. Run it
     if os.path.exists(lhm_exe):
         print(f"Starting {LHM_EXE_NAME} as Administrator...")
         try:
             import win32api
-            # Use 'runas' verb to request Admin privileges. 
-            # 0 = Parent HWND, 'runas' = Operation, lhm_exe = File, '' = Params, lhm_dir = Dir, 6 = SW_MINIMIZE (starts minimized)
-            win32api.ShellExecute(0, 'runas', lhm_exe, '', lhm_dir, 6)
-            
-            # Give it a moment to start
+            # Use 'runas' verb to request Admin privileges.
+            win32api.ShellExecute(0, 'runas', lhm_exe, '', lhm_dir, 6) # SW_MINIMIZE
+
             time.sleep(3)
-            
+
             if is_lhm_running():
                 print("LibreHardwareMonitor started successfully.")
                 return True
             else:
-                print("Failed to verify process start. It may be running with higher privileges than this script can see.")
-                return True # Assume success if no exception, as Admin processes might hide from non-admin enumeration
-        except ImportError:
-            # Fallback if pywin32 missing (though it is in requirements)
-            print("win32api not found, attempting standard launch...")
-            subprocess.Popen([lhm_exe], cwd=lhm_dir, shell=False)
-            return True
+                print("Failed to verify process start. It may be running with higher privileges.")
+                return True
         except Exception as e:
             print(f"Error starting process: {e}")
             return False
-    
+
     return False

@@ -20,6 +20,7 @@ nuitka-crash-report.xml
 nuitka-crash-report.txt
 debug_run.log
 crash_log.txt
+windows_release_instructions.txt
 
 # Screenshots (Large binary assets)
 *.png
