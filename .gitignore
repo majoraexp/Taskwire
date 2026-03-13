@@ -27,5 +27,5 @@ windows_release_instructions.txt
 *.jpg
 !Taskwire/app_icon.png
 !Taskwire/assets/icon.png
-!taskwire_dashboard.png
+!taskwire_dashboard*.png
 !taskwire_processTab.png
