@@ -42,19 +42,10 @@ RUN pip install --no-cache-dir -r Taskwire/requirements.txt
 # Switch to source directory
 WORKDIR /app/Taskwire
 
-# Nuitka Compilation Command
-# --standalone: Include all dependencies
-# --onefile: Bundle into a single executable
-# --enable-plugin=pyqt6: Enable PyQt6 plugin
-# --include-data-file: Bundle the icon inside the executable
-# --linux-icon: Set the elf file icon
-CMD ["python3", "-m", "nuitka", \
-     "--standalone", \
-     "--onefile", \
-     "--enable-plugin=pyqt6", \
-     "--include-data-file=app_icon.png=app_icon.png", \
-     "--linux-icon=app_icon.png", \
-     "--output-dir=dist", \
-     "--output-filename=Taskwire", \
-     "--no-pyi-file", \
-     "main.py"]
+# Build via script to avoid shell escaping issues in CMD
+# See docker_build.sh for the full build strategy:
+# 1. Nuitka standalone build
+# 2. Inject libxcb-cursor.so.0 next to libqxcb.so + patchelf rpath fix
+# 3. Nuitka onefile repack (reuses compiled artifacts from step 1)
+COPY Nuitka_Build/docker_build.sh /app/Taskwire/docker_build.sh
+CMD ["bash", "/app/Taskwire/docker_build.sh"]

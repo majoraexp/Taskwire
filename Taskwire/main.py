@@ -18,7 +18,7 @@ from src.styles import ModernTheme
 from src.ui import (
     CpuWidget, MemoryWidget, ProcessListWidget, NetworkWidget,
     DiskWidget, CpuHistoryWidget, TempGraphWidget, TopPanelWidget,
-    DiskIOWidget, ToolsWidget
+    DiskIOWidget, ToolsWidget, ServicesWidget, ConnectionsWidget
 )
 from src.system_monitor import SystemWorker
 
@@ -91,6 +91,14 @@ class MainWindow(QMainWindow):
         # Processes Tab
         self.process_widget = ProcessListWidget()
         self.tabs.addTab(self.process_widget, "Processes")
+
+        # Services Tab
+        self.services_widget = ServicesWidget()
+        self.tabs.addTab(self.services_widget, "Services")
+
+        # Connections Tab
+        self.connections_widget = ConnectionsWidget()
+        self.tabs.addTab(self.connections_widget, "Connections")
 
         # Tools Tab
         self.tools_widget = ToolsWidget()
@@ -204,6 +212,8 @@ class MainWindow(QMainWindow):
         self.disk_io_widget.refresh_theme()
         self.top_panel.refresh_theme()
         self.process_widget.refresh_theme()
+        self.services_widget.refresh_theme()
+        self.connections_widget.refresh_theme()
         self.tools_widget.refresh_theme()
 
     def change_graph_duration(self):
