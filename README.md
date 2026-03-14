@@ -22,11 +22,12 @@
 *   **Live Monitoring:**
     *   **Extended History:** Customizable graph duration (60s, 90s, **30 Minutes**) for long-term trend spotting.
     *   **CPU:** Overall usage with a large percentage overlay, per-core utilization bars with frequency (MHz/GHz), and live history.
-    *   **Memory:** Interactive circular gauge showing Physical Memory (RAM) usage.
+    *   **Memory:** Interactive circular gauge showing Physical Memory (RAM) usage with allocation breakdown legend.
+    *   **GPU:** Real-time GPU utilization gauge (NVIDIA).
     *   **Disk:** 3D isometric drive icons for physical disks and a real-time **Read/Write Speed Graph**.
-    *   **Network:** Real-time upload and download speeds.
-    *   **Thermals:** Live temperature graphs for CPU, GPU, and motherboard sensors.
-    *   **Fans:** Live RPM monitoring for system fans.
+    *   **Network:** Real-time upload and download speed history graph.
+    *   **Thermals:** Live temperature graphs for CPU, GPU, and motherboard sensors with per-sensor color coding.
+    *   **Fans:** Live RPM monitoring graph for system fans.
     *   **Enhanced Visuals:** X-axis time indicators, vertical hover lines, and dynamic tooltips on all graphs.
 *   **Process Manager:**
     *   Full list of running processes.
@@ -37,7 +38,22 @@
     *   **Swap Monitoring:** Tracks Swap usage per process.
     *   **Grouping:** Collapses multiple processes by name (e.g., "firefox (12)") for a cleaner view.
     *   **Process Tree Management:** Kill entire process stacks from the grouped view or use "End Process Tree" in detailed view.
+    *   **Force Kill (Admin):** Escalate to root via pkexec for stubborn processes. Batched authentication — only one password prompt for multi-PID kills.
     *   Search functionality.
+*   **Systemd Services Manager** *(New in v1.54)*
+    *   List all systemd services with real-time status (active/inactive/failed/transitional).
+    *   **Start / Stop / Restart / Enable / Disable** services with admin escalation via pkexec.
+    *   Search bar and status filter (All / Active / Inactive / Failed).
+    *   Color-coded status indicators and state-aware context menu (grays out invalid actions).
+    *   Double-click any service for full `systemctl status` output.
+    *   5-second auto-refresh with selection preservation.
+*   **Active Connections / Ports Viewer** *(New in v1.54)*
+    *   Frontend for `ss` — view all TCP/UDP connections and listening ports.
+    *   Columns: Protocol, State, Local Address, Port, Peer Address, Peer Port, Process, PID.
+    *   **Protocol filter** (All / TCP / UDP) and **state filter** (LISTEN / ESTAB / UNCONN / CLOSE-WAIT / TIME-WAIT).
+    *   Color-coded protocols (TCP=cyan, UDP=orange) and states (LISTEN=green, ESTAB=cyan, closing=orange).
+    *   Right-click to copy connection info or kill owning process.
+    *   3-second auto-refresh with selection preservation.
 *   **System Tools:**
     *   **Caps Lock Toggle:** Global enable/disable switch for the Caps Lock key (Linux only).
 *   **Custom UI:** Built with PyQt6 using custom `QPainter` rendering for gauges, graphs, and icons (no image assets required, fully procedural).
