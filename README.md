@@ -11,10 +11,19 @@
 
 > **📥 [Download the latest standalone executable (No Python required)] (Now compiled in C++!) https://github.com/majoraexp/Taskwire/releases)**
 
-![Taskwire Dashboard](taskwire_dashboard_v153.png)
+![Taskwire Dashboard](taskwire_dashboard_v154.png)
 
-![Taskwire Processes](taskwire_processTab.png)
-*The Process Manager with normalized memory tracking.*
+![Taskwire Processes](taskwire_tab_2_v154.png)
+*Process Manager with grouped view, context menu, and Force Kill (Admin).*
+
+![Taskwire Services](taskwire_tab_3_v154.png)
+*Systemd Services Manager — list, search, and control all services.*
+
+![Taskwire Connections](taskwire_tab_4_v154.png)
+*Active Connections viewer — all TCP/UDP sockets with owning processes.*
+
+![Taskwire Tools](taskwire_tab_5_v154.png)
+*System Tools — Caps Lock toggle and more.*
 
 ## 🚀 Features
 
