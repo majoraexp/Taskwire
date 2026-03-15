@@ -280,3 +280,46 @@ Added two new major tabs: Systemd Services Manager and Active Connections/Ports 
 
 **CLAUDE.md**
 - Added this change log entry for 2026-03-14 (Session 3)
+
+## 2026-03-15
+
+### Session Summary
+Added Live System Log Viewer tab (`JournalLogWidget`) — real-time journalctl streaming with customizable filters. Grok and Gemini both reviewed (Gemini worked without `-m` flag after `gemini-3.1-pro-preview` was capacity-exhausted).
+
+### Files Modified
+
+**Taskwire/src/ui.py** — New `JournalLogWidget` class (~350 lines)
+- **Purpose**: Live system log viewer using `journalctl -f` via QProcess for non-blocking real-time streaming
+- **Output**: QPlainTextEdit with `setMaximumBlockCount(5000)` for buffer management
+- **Streaming**: QProcess with `--follow --output=short-precise --no-hostname -n 200` flags
+- **Batch flush**: 100ms QTimer collects buffered lines and appends in batch to prevent UI stutter
+- **Partial line handling**: `_partial_line` accumulator correctly reassembles lines split across QProcess reads (Grok + Gemini both caught this bug)
+- **Color-coded**: Lines colored by detected severity — red=error/crit/emerg, orange=warning, cyan=notice, green=info, gray=debug (keyword matching in log text)
+- **Toolbar Row 1**: Priority/severity filter combo (All through Debug), unit/service text input (comma-separated, applies as `--unit=`), boot selector (populated from `journalctl --list-boots`)
+- **Toolbar Row 2**: Search with debounced (200ms) ExtraSelections highlighting (max 5000 matches), Pause/Resume toggle, Word Wrap toggle, Clear, Jump to Bottom
+- **Auto-scroll**: Detected via scrollbar position — disables when user scrolls up (>50px from bottom), re-enables at bottom or via Jump to Bottom button
+- **Pause**: Buffers lines without displaying; caps buffer at 10,000 lines during pause to prevent unbounded memory growth (Grok suggestion)
+- **Filter changes**: Clears log view and restarts QProcess with updated `--priority=`, `--unit=`, `-b` flags
+- **Error handling**: QProcess `errorOccurred` + `finished` signals update status bar; permission hint for `systemd-journal` group (Gemini suggestion)
+- **Theme**: Full dark/light support via `refresh_theme()`
+- **Cleanup**: `stop()` method kills QProcess + stops timers; called from `MainWindow.closeEvent`; `__del__` fallback (Gemini suggestion to prevent zombie journalctl processes)
+- **Guard**: Checks `shutil.which("journalctl")`, shows error if not found
+
+**Taskwire/src/ui.py** — Import additions
+- Added `QProcess` to `PyQt6.QtCore` imports
+- Added `QPlainTextEdit`, `QComboBox` to `PyQt6.QtWidgets` imports
+
+**Taskwire/main.py** — Tab + lifecycle additions
+- Added `JournalLogWidget` to imports
+- Added "Logs" tab (between Connections and Tools)
+- Added `journal_widget.refresh_theme()` to `switch_theme()` chain
+- Added `journal_widget.stop()` to `closeEvent` before worker shutdown
+
+### Review Notes
+- **Gemini** worked without `-m` flag (default model) after `gemini-3.1-pro-preview` returned 429 capacity exhausted
+- **Gemini** key suggestions applied: partial line fix, ExtraSelections for search (not setHtml), `-n 200` for initial history, `--no-hostname` to save space, zombie process prevention, word wrap toggle, search debounce (200ms)
+- **Grok** key suggestions applied: partial line fix, buffer cap during pause (10k), removed re-highlighting from flush loop
+- **Both models** agreed `QSyntaxHighlighter` was overkill for search; ExtraSelections sufficient with debounce
+
+**CLAUDE.md**
+- Added this change log entry for 2026-03-15

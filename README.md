@@ -25,6 +25,18 @@
 ![Taskwire Tools](taskwire_tab_5_v154.png)
 *System Tools — Caps Lock toggle and more.*
 
+## Why I Made Taskwire / How to Use It
+
+Taskwire gives you a full diagnostic loop across its tabs, so you can go from "something's wrong" to "fixed it" without opening a terminal.
+
+- **Logs** surface the problem in real time.
+- **Dashboard** checks system health at a glance.
+- **Services** let you stop, restart, enable, or disable the cause.
+- **Processes** let you find and kill anything eating resources.
+- **Connections** show you what's talking to the network and why.
+
+The whole point is that each tab feeds into the next. Logs tell you what's wrong, Dashboard tells you whether the system is stressed, Services or Processes let you fix it, and Connections covers the network angle. You stay in one window the entire time.
+
 ## 🚀 Features
 
 *   **HUD-Style Dashboard:** A cohesive, single-window interface with a Dracula-inspired dark theme and neon accents.
@@ -63,6 +75,13 @@
     *   Color-coded protocols (TCP=cyan, UDP=orange) and states (LISTEN=green, ESTAB=cyan, closing=orange).
     *   Right-click to copy connection info or kill owning process.
     *   3-second auto-refresh with selection preservation.
+*   **Live System Log Viewer** *(New in v1.55)*
+    *   Real-time `journalctl` streaming via QProcess — no terminal needed.
+    *   Filter by priority (Emergency through Debug), systemd unit, and boot session.
+    *   Color-coded log lines by severity (red=error, orange=warning, cyan=notice, green=info).
+    *   Live search with highlighted matches, pause/resume, word wrap toggle, and jump-to-bottom.
+    *   Auto-scroll that pauses when you scroll up to read history, resumes at bottom.
+    *   Buffer management: 5,000 line display cap, 10,000 line pause buffer.
 *   **System Tools:**
     *   **Caps Lock Toggle:** Global enable/disable switch for the Caps Lock key (Linux only).
 *   **Custom UI:** Built with PyQt6 using custom `QPainter` rendering for gauges, graphs, and icons (no image assets required, fully procedural).

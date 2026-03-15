@@ -18,7 +18,8 @@ from src.styles import ModernTheme
 from src.ui import (
     CpuWidget, MemoryWidget, ProcessListWidget, NetworkWidget,
     DiskWidget, CpuHistoryWidget, TempGraphWidget, TopPanelWidget,
-    DiskIOWidget, ToolsWidget, ServicesWidget, ConnectionsWidget
+    DiskIOWidget, ToolsWidget, ServicesWidget, ConnectionsWidget,
+    JournalLogWidget
 )
 from src.system_monitor import SystemWorker
 
@@ -99,6 +100,10 @@ class MainWindow(QMainWindow):
         # Connections Tab
         self.connections_widget = ConnectionsWidget()
         self.tabs.addTab(self.connections_widget, "Connections")
+
+        # Logs Tab
+        self.journal_widget = JournalLogWidget()
+        self.tabs.addTab(self.journal_widget, "Logs")
 
         # Tools Tab
         self.tools_widget = ToolsWidget()
@@ -214,6 +219,7 @@ class MainWindow(QMainWindow):
         self.process_widget.refresh_theme()
         self.services_widget.refresh_theme()
         self.connections_widget.refresh_theme()
+        self.journal_widget.refresh_theme()
         self.tools_widget.refresh_theme()
 
     def change_graph_duration(self):
@@ -372,8 +378,9 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """
         Handles the close event for the main window.
-        Stops the system worker thread gracefully before the application exits.
+        Stops the system worker thread and journal process gracefully before exit.
         """
+        self.journal_widget.stop()
         self.worker.stop()
         self.worker.quit()
         self.worker.wait()
