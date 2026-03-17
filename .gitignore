@@ -1,5 +1,6 @@
-# Gemini Context (Local Only)
+# AI Context (Local Only)
 .gemini_context/
+CLAUDE.md
 
 # Python
 __pycache__/
