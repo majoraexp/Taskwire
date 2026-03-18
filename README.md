@@ -11,21 +11,21 @@
 
 > **📥 [Download the latest standalone executable (No Python required)] (Now compiled in C++!) https://github.com/majoraexp/Taskwire/releases)**
 
-![Taskwire Dashboard](taskwire_dashboard_v154.png)
+![Taskwire Dashboard](taskwire_dashboard_v1551.png)
 
-![Taskwire Processes](taskwire_tab_2_v154.png)
+![Taskwire Processes](taskwire_tab_2_v1551.png)
 *Process Manager with grouped view, context menu, and Force Kill (Admin).*
 
-![Taskwire Services](taskwire_tab_3_v154.png)
+![Taskwire Services](taskwire_tab_3_v1551.png)
 *Systemd Services Manager — list, search, and control all services.*
 
-![Taskwire Connections](taskwire_tab_4_v154.png)
+![Taskwire Connections](taskwire_tab_4_v1551.png)
 *Active Connections viewer — all TCP/UDP sockets with owning processes.*
 
-![Taskwire Logs](taskwire_tab_6_v155.png)
+![Taskwire Logs](taskwire_tab_6_v1551.png)
 *Live System Log Viewer — real-time journalctl streaming with filters and search.*
 
-![Taskwire Tools](taskwire_tab_5_v154.png)
+![Taskwire Tools](taskwire_tab_5_v1551.png)
 *System Tools — Caps Lock toggle and more.*
 
 ## Why I Made Taskwire / How to Use It
@@ -47,7 +47,7 @@ The whole point is that each tab feeds into the next. Logs tell you what's wrong
     *   **Extended History:** Customizable graph duration (60s, 90s, **30 Minutes**) for long-term trend spotting.
     *   **CPU:** Overall usage with a large percentage overlay, per-core utilization bars with frequency (MHz/GHz), and live history.
     *   **Memory:** Interactive circular gauge showing Physical Memory (RAM) usage with allocation breakdown legend.
-    *   **GPU:** Real-time GPU utilization gauge (NVIDIA).
+    *   **GPU:** Real-time GPU utilization gauge and history graph (AMD via sysfs, NVIDIA via nvidia-smi).
     *   **Disk:** 3D isometric drive icons for physical disks and a real-time **Read/Write Speed Graph**.
     *   **Network:** Real-time upload and download speed history graph.
     *   **Thermals:** Live temperature graphs for CPU, GPU, and motherboard sensors with per-sensor color coding.

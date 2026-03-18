@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QAbstractItemView,
     QPushButton, QMessageBox, QLineEdit, QAbstractButton,
     QMenu, QStackedWidget, QDialog, QCheckBox, QDialogButtonBox, QHeaderView,
-    QSizePolicy, QPlainTextEdit, QComboBox
+    QSizePolicy, QPlainTextEdit, QComboBox, QFileDialog
 )
 
 from .styles import ModernTheme
@@ -654,16 +654,23 @@ class TempGraphWidget(Card):
 
 class CpuHistoryWidget(Card):
     """
-    A widget to display a historical line graph of total CPU utilization.
+    A generic widget to display a historical line graph of a utilization metric.
+    Used for CPU, GPU, or any 0-100% time-series data.
     """
-    def __init__(self, history_duration=90):
+    def __init__(self, history_duration=90, title="CPU History",
+                 accent_color=None, label="CPU"):
         """
-        Initializes the CpuHistoryWidget.
+        Initializes the history graph widget.
 
         Args:
             history_duration (int): The number of seconds to keep in the history.
+            title (str): The card title displayed above the graph.
+            accent_color (str): Hex color for the graph line/fill. Defaults to ACCENT_CYAN.
+            label (str): Label used in tooltips and overlay (e.g. "CPU", "GPU").
         """
-        super().__init__("Total CPU History")
+        super().__init__(title)
+        self.accent_color = accent_color or ModernTheme.ACCENT_CYAN
+        self.label = label
         self.maxlen = history_duration
         self.update_interval = 0
         self.last_update_time = 0
@@ -736,9 +743,9 @@ class CpuHistoryWidget(Card):
                 
                 val = self.data_points[self.hover_index]
                 if val is None:
-                    self.tooltip_widget.update_info(f"Time: -{time_str}\nCPU: NA")
+                    self.tooltip_widget.update_info(f"Time: -{time_str}\n{self.label}: NA")
                 else:
-                    self.tooltip_widget.update_info(f"Time: -{time_str}\nCPU: {val:.1f}%")
+                    self.tooltip_widget.update_info(f"Time: -{time_str}\n{self.label}: {val:.1f}%")
 
     def refresh_theme(self):
         """Refreshes the widget's colors based on the current ModernTheme."""
@@ -775,9 +782,9 @@ class CpuHistoryWidget(Card):
                 # Update Tooltip
                 val = self.data_points[index]
                 if val is None:
-                    self.tooltip_widget.update_info(f"Time: -{time_str}\nCPU: NA")
+                    self.tooltip_widget.update_info(f"Time: -{time_str}\n{self.label}: NA")
                 else:
-                    self.tooltip_widget.update_info(f"Time: -{time_str}\nCPU: {val:.1f}%")
+                    self.tooltip_widget.update_info(f"Time: -{time_str}\n{self.label}: {val:.1f}%")
                 
                 # Position Tooltip (Global Coords)
                 global_pos = self.graph_area.mapToGlobal(event.pos())
@@ -860,15 +867,15 @@ class CpuHistoryWidget(Card):
         path.closeSubpath()
         
         # Fill
-        fill_color = QColor(ModernTheme.ACCENT_CYAN)
+        fill_color = QColor(self.accent_color)
         fill_color.setAlpha(50)
         painter.fillPath(path, fill_color)
-        
+
         # Stroke
-        pen = QPen(QColor(ModernTheme.ACCENT_CYAN), 2)
+        pen = QPen(QColor(self.accent_color), 2)
         painter.setPen(pen)
         painter.drawPath(path)
-        
+
         # Draw Hover Dot
         if self.hover_index != -1 and self.hover_index < len(points):
             val = points[self.hover_index]
@@ -880,7 +887,7 @@ class CpuHistoryWidget(Card):
             painter.setPen(QPen(QColor(ModernTheme.BORDER_COLOR), 1, Qt.PenStyle.DashLine))
             painter.drawLine(int(hx), 0, int(hx), int(graph_h))
 
-            painter.setBrush(QBrush(QColor(ModernTheme.ACCENT_CYAN)))
+            painter.setBrush(QBrush(QColor(self.accent_color)))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(QPointF(hx, hy), 4, 4)
 
@@ -4009,8 +4016,12 @@ class ServicesWidget(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setSortingEnabled(True)
-        self.table.horizontalHeader().setSortIndicatorShown(True)
-        self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
+
+        # Set custom header with visible column separators
+        header = ModernHeader(Qt.Orientation.Horizontal, self.table)
+        self.table.setHorizontalHeader(header)
+        header.setSortIndicatorShown(True)
+        header.sectionClicked.connect(self._on_header_clicked)
 
         # Column stretch
         h = self.table.horizontalHeader()
@@ -4515,7 +4526,11 @@ class ConnectionsWidget(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setSortingEnabled(True)
-        self.table.horizontalHeader().setSortIndicatorShown(True)
+
+        # Set custom header with visible column separators
+        header = ModernHeader(Qt.Orientation.Horizontal, self.table)
+        self.table.setHorizontalHeader(header)
+        header.setSortIndicatorShown(True)
 
         # Column sizing — use Interactive + fixed widths instead of ResizeToContents
         # to avoid expensive per-cell measurement on every refresh
@@ -5040,6 +5055,14 @@ class JournalLogWidget(QWidget):
         self.btn_bottom.clicked.connect(self._jump_to_bottom)
         toolbar2.addWidget(self.btn_bottom)
 
+        # Export
+        self.btn_export = QPushButton("Export")
+        self.btn_export.setStyleSheet(btn_style)
+        self.btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_export.setToolTip("Save current logs to a file")
+        self.btn_export.clicked.connect(self._export_logs)
+        toolbar2.addWidget(self.btn_export)
+
         main_layout.addLayout(toolbar2)
 
         # --- Log Output ---
@@ -5133,7 +5156,7 @@ class JournalLogWidget(QWidget):
         self._apply_input_style(self.unit_input)
         self._apply_log_style()
         btn_style = self._get_btn_style()
-        for btn in (self.btn_pause, self.btn_wrap, self.btn_clear, self.btn_bottom):
+        for btn in (self.btn_pause, self.btn_wrap, self.btn_clear, self.btn_bottom, self.btn_export):
             btn.setStyleSheet(btn_style)
         self.status_label.setStyleSheet(f"color: {ModernTheme.TEXT_SECONDARY}; font-size: 12px;")
         self.line_count_label.setStyleSheet(f"color: {ModernTheme.TEXT_SECONDARY}; font-size: 12px;")
@@ -5449,6 +5472,34 @@ class JournalLogWidget(QWidget):
     def _clear_highlights(self):
         """Remove all search highlights."""
         self.log_view.setExtraSelections([])
+
+    # --- Export ---
+
+    def _export_logs(self):
+        """Export displayed log content to a file."""
+        content = self.log_view.toPlainText()
+        if not content.strip():
+            QMessageBox.warning(self, "Export Logs", "No logs to export — the log view is empty.")
+            return
+
+        from datetime import datetime
+        default_name = datetime.now().strftime("taskwire_logs_%Y%m%d_%H%M.log")
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Export Logs", default_name,
+            "Log Files (*.log);;Text Files (*.txt);;All Files (*)"
+        )
+        if not filepath:
+            return
+
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(content)
+            QMessageBox.information(self, "Export Logs", f"Logs saved to:\n{filepath}")
+        except PermissionError:
+            QMessageBox.critical(self, "Export Logs", f"Permission denied — cannot write to:\n{filepath}")
+        except OSError as e:
+            QMessageBox.critical(self, "Export Logs", f"Failed to save logs:\n{e}")
 
     # --- Cleanup ---
 

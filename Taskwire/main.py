@@ -112,6 +112,11 @@ class MainWindow(QMainWindow):
         # Initialize Widgets (Created once)
         self.top_panel = TopPanelWidget() # Created here to ensure availability
         self.cpu_history = CpuHistoryWidget()
+        self.gpu_history = CpuHistoryWidget(
+            title="GPU History",
+            accent_color=ModernTheme.ACCENT_CYAN,
+            label="GPU"
+        )
         
         # Global Duration Label
         self.duration_label = QLabel("Graph History: 90s")
@@ -126,6 +131,7 @@ class MainWindow(QMainWindow):
         default_interval = 1
         # Use +1 for maxlen so the range is exactly 0..duration inclusive
         self.cpu_history.set_duration(self.graph_duration + 1, default_interval)
+        self.gpu_history.set_duration(self.graph_duration + 1, default_interval)
         self.disk_io_widget.set_duration(self.graph_duration + 1, default_interval)
         self.temp_widget.set_duration(self.graph_duration + 1, default_interval)
         self.net_widget.set_duration(self.graph_duration + 1, default_interval)
@@ -143,6 +149,7 @@ class MainWindow(QMainWindow):
         # Connect Top Panel
         self.worker.cpu_update.connect(self.top_panel.update_cpu)
         self.worker.gpu_update.connect(self.top_panel.update_gpu)
+        self.worker.gpu_update.connect(self.gpu_history.update_data)
         self.worker.fan_update.connect(self.top_panel.update_fans)
 
         self.worker.memory_update.connect(self.mem_widget.update_data)
@@ -209,6 +216,7 @@ class MainWindow(QMainWindow):
         
         # Refresh Widgets
         self.cpu_history.refresh_theme()
+        self.gpu_history.refresh_theme()
         self.cpu_widget.refresh_theme()
         self.mem_widget.refresh_theme()
         self.net_widget.refresh_theme()
@@ -263,6 +271,7 @@ class MainWindow(QMainWindow):
             # Use +1 for maxlen so the range is exactly 0..duration inclusive
             new_maxlen = (total_seconds // interval) + 1
             self.cpu_history.set_duration(new_maxlen, interval)
+            self.gpu_history.set_duration(new_maxlen, interval)
             self.disk_io_widget.set_duration(new_maxlen, interval)
             self.temp_widget.set_duration(new_maxlen, interval)
             self.net_widget.set_duration(new_maxlen, interval)
@@ -323,8 +332,12 @@ class MainWindow(QMainWindow):
         # Row 1: Top Panel
         self.dashboard_layout.addWidget(self.top_panel)
         
-        # Row 2: CPU History
-        self.dashboard_layout.addWidget(self.cpu_history)
+        # Row 2: CPU History | GPU History (side by side)
+        history_row = QHBoxLayout()
+        history_row.setSpacing(15)
+        history_row.addWidget(self.cpu_history, 1)
+        history_row.addWidget(self.gpu_history, 1)
+        self.dashboard_layout.addLayout(history_row)
 
         if self.dashboard_columns == 1:
             # Vertical Stack

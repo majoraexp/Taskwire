@@ -1,4 +1,6 @@
+import glob
 import platform
+import shutil
 import subprocess
 import time
 
@@ -45,6 +47,13 @@ class SystemWorker(QThread):
 
         self.procs = {} # Cache for Process objects
         self.cpu_ema = None # Exponential Moving Average for CPU
+
+        # GPU path cache: discover AMD sysfs paths once, check for nvidia-smi binary
+        self._amd_gpu_paths = glob.glob('/sys/class/drm/card*/device/gpu_busy_percent')
+        self._has_nvidia = (
+            not platform.system() == "Windows"
+            and shutil.which("nvidia-smi") is not None
+        )
 
     def run(self):
         if getattr(self, '_loop_running', False):
@@ -120,17 +129,35 @@ class SystemWorker(QThread):
             }
 
 
-            # 3. GPU Stats (nvidia-smi fallback)
+            # 3. GPU Stats (AMD sysfs first, nvidia-smi fallback)
             gpu_usage = 0.0
             try:
                 if not is_windows:
-                    # Linux: Try nvidia-smi
-                    res = subprocess.run(
-                        ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
-                        capture_output=True, text=True, check=False
-                    )
-                    if res.returncode == 0:
-                        gpu_usage = float(res.stdout.strip())
+                    # AMD: read cached sysfs path(s)
+                    amd_failures = 0
+                    for path in self._amd_gpu_paths:
+                        try:
+                            with open(path, 'r') as f:
+                                val = float(f.read().strip())
+                                gpu_usage = max(gpu_usage, max(0.0, min(100.0, val)))
+                        except (OSError, ValueError):
+                            amd_failures += 1
+                    # Re-discover paths only if all cached paths failed
+                    if self._amd_gpu_paths and amd_failures == len(self._amd_gpu_paths):
+                        self._amd_gpu_paths = glob.glob('/sys/class/drm/card*/device/gpu_busy_percent')
+
+                    # NVIDIA: check if present, take max with AMD
+                    if self._has_nvidia:
+                        res = subprocess.run(
+                            ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+                            capture_output=True, text=True, check=False
+                        )
+                        if res.returncode == 0:
+                            for line in res.stdout.strip().splitlines():
+                                try:
+                                    gpu_usage = max(gpu_usage, float(line.strip()))
+                                except ValueError:
+                                    continue
             except Exception: # pylint: disable=W0718
                 pass
             self.gpu_update.emit(gpu_usage)
