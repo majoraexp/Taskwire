@@ -22,10 +22,10 @@
 ![Taskwire Connections](taskwire_tab_4_v1551.png)
 *Active Connections viewer — all TCP/UDP sockets with owning processes.*
 
-![Taskwire Logs](taskwire_tab_6_v1551.png)
+![Taskwire Logs](taskwire_tab_5_v1551.png)
 *Live System Log Viewer — real-time journalctl streaming with filters and search.*
 
-![Taskwire Tools](taskwire_tab_5_v1551.png)
+![Taskwire Tools](taskwire_tab_6_v1551.png)
 *System Tools — Caps Lock toggle and more.*
 
 ## Why I Made Taskwire / How to Use It
