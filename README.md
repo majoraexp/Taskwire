@@ -83,6 +83,7 @@ The whole point is that each tab feeds into the next. Logs tell you what's wrong
     *   Filter by priority (Emergency through Debug), systemd unit, and boot session.
     *   Color-coded log lines by severity (red=error, orange=warning, cyan=notice, green=info).
     *   Live search with highlighted matches, pause/resume, word wrap toggle, and jump-to-bottom.
+    *   **Export logs** to file with timestamped default filename.
     *   Auto-scroll that pauses when you scroll up to read history, resumes at bottom.
     *   Buffer management: 5,000 line display cap, 10,000 line pause buffer.
 *   **System Tools:**
