@@ -43,9 +43,10 @@ fi
 USER_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 
 disable_caps() {
-    # LAYER 1: SYSTEM CONSOLE (TTY)
-    localectl set-x11-keymap --no-convert us "" "" "caps:none"
-    dumpkeys | sed "s/keycode  58 = Caps_Lock/keycode  58 = VoidSymbol/" | loadkeys 2>/dev/null
+    # LAYER 1: SYSTEM CONSOLE (TTY) — optional, may not exist on all distros
+    command -v localectl &> /dev/null && localectl set-x11-keymap --no-convert us "" "" "caps:none" || true
+    command -v dumpkeys &> /dev/null && command -v loadkeys &> /dev/null && \
+        dumpkeys | sed "s/keycode  58 = Caps_Lock/keycode  58 = VoidSymbol/" | loadkeys 2>/dev/null || true
 
     # LAYER 2: KDE PLASMA
     KXKB_FILE="$USER_HOME/.config/kxkbrc"
@@ -69,25 +70,23 @@ disable_caps() {
         chown -R "$REAL_USER":"$REAL_USER" "$USER_HOME/.config/kxkbrc"
     fi
 
-    # LAYER 3: GNOME
+    # LAYER 3: GNOME — optional
     if command -v gsettings &> /dev/null; then
         PID=$(pgrep -u "$REAL_USER" gnome-session | head -n 1)
         if [ -n "$PID" ]; then
             DBUS_ADDR=$(grep -z DBUS_SESSION_BUS_ADDRESS /proc/"$PID"/environ | cut -d= -f2-)
             export DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDR"
-            su -c "gsettings set org.gnome.desktop.input-sources xkb-options \"['caps:none']\"" - "$REAL_USER"
+            su -c "gsettings set org.gnome.desktop.input-sources xkb-options \"['caps:none']\"" - "$REAL_USER" || true
         fi
     fi
 
-    # LAYER 4: RUNTIME (X11/Xwayland)
-    if command -v setxkbmap &> /dev/null; then
-        setxkbmap -option caps:none 2>/dev/null
-    fi
+    # LAYER 4: RUNTIME (X11/Xwayland) — optional, fails on pure Wayland
+    command -v setxkbmap &> /dev/null && setxkbmap -option caps:none 2>/dev/null || true
 }
 
 enable_caps() {
-    localectl set-x11-keymap --no-convert us "" "" ""
-    loadkeys -d 2>/dev/null
+    command -v localectl &> /dev/null && localectl set-x11-keymap --no-convert us "" "" "" || true
+    command -v loadkeys &> /dev/null && loadkeys -d 2>/dev/null || true
 
     KXKB_FILE="$USER_HOME/.config/kxkbrc"
     if [ -f "$KXKB_FILE" ]; then
@@ -96,10 +95,10 @@ enable_caps() {
     fi
 
     if command -v gsettings &> /dev/null; then
-        su -c "gsettings reset org.gnome.desktop.input-sources xkb-options" - "$REAL_USER"
+        su -c "gsettings reset org.gnome.desktop.input-sources xkb-options" - "$REAL_USER" || true
     fi
 
-    setxkbmap -option 2>/dev/null
+    command -v setxkbmap &> /dev/null && setxkbmap -option 2>/dev/null || true
 }
 
 case "$ACTION" in
@@ -107,6 +106,7 @@ case "$ACTION" in
     enable) enable_caps ;;
     *) echo "Usage: $0 [disable|enable]"; exit 1 ;;
 esac
+exit 0
 '''
 
 
@@ -197,35 +197,43 @@ class ToolsWidget(QWidget):
 
     def check_caps_status(self):
         """
-        Checks if Caps Lock is disabled via config files (simulating the shell script logic).
+        Checks if Caps Lock is disabled via system config (localectl, KDE, GNOME).
         """
-        # Logic: Assume Enabled unless we find 'caps:none' in configs
         is_disabled = False
 
-        # 1. Check KDE Config (~/.config/kxkbrc)
-        home = os.path.expanduser("~")
-        kxkb_file = os.path.join(home, ".config", "kxkbrc")
-        if os.path.exists(kxkb_file):
-            try:
-                with open(kxkb_file, "r") as f:
-                    content = f.read()
-                    if "caps:none" in content:
-                        is_disabled = True
-            except:
-                pass
+        # 1. Check localectl (system-wide, works on all systemd distros)
+        try:
+            res = subprocess.run(
+                ["localectl", "status"],
+                capture_output=True, text=True
+            )
+            if res.returncode == 0 and "caps:none" in res.stdout:
+                is_disabled = True
+        except Exception:
+            pass
 
-        # 2. Check GNOME (gsettings)
-        # Simple check using subprocess
+        # 2. Check KDE Config (~/.config/kxkbrc)
+        if not is_disabled:
+            home = os.path.expanduser("~")
+            kxkb_file = os.path.join(home, ".config", "kxkbrc")
+            if os.path.exists(kxkb_file):
+                try:
+                    with open(kxkb_file, "r") as f:
+                        if "caps:none" in f.read():
+                            is_disabled = True
+                except Exception:
+                    pass
+
+        # 3. Check GNOME (gsettings)
         if not is_disabled:
             try:
-                # This might fail if gsettings not installed, that's fine
                 res = subprocess.run(
                     ["gsettings", "get", "org.gnome.desktop.input-sources", "xkb-options"],
                     capture_output=True, text=True
                 )
                 if res.returncode == 0 and "caps:none" in res.stdout:
                     is_disabled = True
-            except:
+            except Exception:
                 pass
 
         self.is_caps_enabled = not is_disabled
@@ -280,15 +288,28 @@ class ToolsWidget(QWidget):
                 f.write(_CAPS_CONTROL_SCRIPT)
             os.chmod(tmp_path, os.stat(tmp_path).st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
-            subprocess.run([pkexec_path, bash_path, tmp_path, action], check=True)
+            result = subprocess.run([pkexec_path, bash_path, tmp_path, action],
+                                     capture_output=True, text=True)
+
+            if result.returncode == 126 or result.returncode == 127:
+                QMessageBox.warning(self, "Error", "Authentication was cancelled or denied.")
+                return
+
+            if result.returncode != 0:
+                err = result.stderr.strip() or result.stdout.strip() or "Unknown error"
+                QMessageBox.warning(self, "Error", f"Script failed (exit code {result.returncode}):\n{err}")
+                return
 
             # Re-check status
             self.check_caps_status()
 
             QMessageBox.information(self, "Success", f"Caps Lock has been {action}d.\nA reboot is required for changes to fully take effect.")
 
-        except subprocess.CalledProcessError:
-            QMessageBox.warning(self, "Error", "Failed to execute command. Did you cancel the authentication?")
+        except subprocess.CalledProcessError as e:
+            err = ""
+            if e.stderr:
+                err = e.stderr.strip()
+            QMessageBox.warning(self, "Error", f"Failed to execute command.\n{err}" if err else "Failed to execute command. Did you cancel the authentication?")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
         finally:
