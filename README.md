@@ -2,30 +2,31 @@
 
 ![License](https://img.shields.io/github/license/majoraexp/Taskwire?style=flat-square&color=blueviolet)
 ![Release](https://img.shields.io/github/v/release/majoraexp/Taskwire?style=flat-square&color=orange)
-![Python](https://img.shields.io/badge/Python-3.8%2B-blue?style=flat-square&logo=python&logoColor=white)
+![C++](https://img.shields.io/badge/C%2B%2B-17-blue?style=flat-square&logo=cplusplus&logoColor=white)
+![Qt](https://img.shields.io/badge/Qt-6-green?style=flat-square&logo=qt&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Linux-orange?style=flat-square&logo=linux&logoColor=white)
 
 > **⚠️ Disclaimer:** This is an AI "vibe coded" project, and my first attempt at making something useful with it.
 
 **Taskwire** is a modern, dark-themed system monitor for Linux, designed with a "Video Game HUD" aesthetic. It provides real-time monitoring of your system's performance with a visual style inspired by cyberpunk interfaces and modern desktop widgets.
 
-> **📥 [Download the latest standalone executable (No Python required)] (Now compiled in C++!) https://github.com/majoraexp/Taskwire/releases)**
+> **📥 [Download the latest release (AppImage or native binary)](https://github.com/majoraexp/Taskwire/releases)** — No dependencies needed for AppImage!
 
-![Taskwire Dashboard](taskwire_dashboard_v1551.png)
+![Taskwire Dashboard](taskwire_2.0_dashboard.png)
 
-![Taskwire Processes](taskwire_tab_2_v1551.png)
-*Process Manager with grouped view, context menu, and Force Kill (Admin).*
+![Taskwire Processes](taskwire_2.0_processes_tab.png)
+*Process Manager with grouped view, sortable columns, and Force Kill (Admin).*
 
-![Taskwire Services](taskwire_tab_3_v1551.png)
+![Taskwire Services](taskwire_2.0_services_tab.png)
 *Systemd Services Manager — list, search, and control all services.*
 
-![Taskwire Connections](taskwire_tab_4_v1551.png)
+![Taskwire Connections](taskwire_2.0_connections_tab.png)
 *Active Connections viewer — all TCP/UDP sockets with owning processes.*
 
-![Taskwire Logs](taskwire_tab_5_v1551.png)
+![Taskwire Logs](taskwire_2.0_logs_tab.png)
 *Live System Log Viewer — real-time journalctl streaming with filters and search.*
 
-![Taskwire Tools](taskwire_tab_6_v1551.png)
+![Taskwire Tools](taskwire_2.0_tools_tab.png)
 *System Tools — Caps Lock toggle and more.*
 
 ## Why I Made Taskwire / How to Use It
@@ -40,7 +41,20 @@ Taskwire gives you a full diagnostic loop across its tabs, so you can go from "s
 
 The whole point is that each tab feeds into the next. Logs tell you what's wrong, Dashboard tells you whether the system is stressed, Services or Processes let you fix it, and Connections covers the network angle. You stay in one window the entire time.
 
-## 🚀 Features
+## What's New in v2.0.0
+
+Taskwire v2.0.0 is a **complete rewrite from Python/PyQt6 to native C++17/Qt6**.
+
+*   **990 KB binary** (vs 51 MB Python bundle) — 98% smaller
+*   **~80 MB RAM** (vs ~250 MB Python) — 68% less memory
+*   **No GIL contention** — true multi-threaded polling
+*   **Direct /proc + /sys parsing** — no psutil dependency, no subprocess overhead
+*   **Dark and light themes** with persistent selection and adaptive accent colors
+*   **Friendly sensor names** — "CPU Package", "GPU Edge" instead of cryptic kernel labels
+*   **Scrollable sensor legends** with per-sensor checkboxes for visibility control
+*   **Settings persistence** — theme, column choices, sensor visibility saved across restarts
+
+## Features
 
 *   **HUD-Style Dashboard:** A cohesive, single-window interface with a Dracula-inspired dark theme and neon accents.
 *   **Live Monitoring:**
@@ -58,28 +72,27 @@ The whole point is that each tab feeds into the next. Logs tell you what's wrong
     *   **Customizable Metrics:** Right-click headers to toggle columns and arrange metrics to your liking.
     *   **Sortable Columns:** Click headers to sort by CPU, Memory, PID, or Name.
     *   **Normalized Memory:** Process memory metrics (Resident, Shared) are dynamically scaled to match system total.
-    *   **Clean Visualization:** Simplified text-based view (no visual clutter) for easier reading of metrics.
     *   **Swap Monitoring:** Tracks Swap usage per process.
-    *   **Grouping:** Collapses multiple processes by name (e.g., "firefox (12)") for a cleaner view.
+    *   **Grouping:** Collapses multiple processes by name (e.g., "brave (14)") for a cleaner view.
     *   **Process Tree Management:** Kill entire process stacks from the grouped view or use "End Process Tree" in detailed view.
     *   **Force Kill (Admin):** Escalate to root via pkexec for stubborn processes. Batched authentication — only one password prompt for multi-PID kills.
     *   Search functionality.
-*   **Systemd Services Manager** *(New in v1.54)*
+*   **Systemd Services Manager:**
     *   List all systemd services with real-time status (active/inactive/failed/transitional).
     *   **Start / Stop / Restart / Enable / Disable** services with admin escalation via pkexec.
     *   Search bar and status filter (All / Active / Inactive / Failed).
     *   Color-coded status indicators and state-aware context menu (grays out invalid actions).
     *   Double-click any service for full `systemctl status` output.
-    *   5-second auto-refresh with selection preservation.
-*   **Active Connections / Ports Viewer** *(New in v1.54)*
+    *   Auto-refresh with selection preservation.
+*   **Active Connections / Ports Viewer:**
     *   Frontend for `ss` — view all TCP/UDP connections and listening ports.
     *   Columns: Protocol, State, Local Address, Port, Peer Address, Peer Port, Process, PID.
     *   **Protocol filter** (All / TCP / UDP) and **state filter** (LISTEN / ESTAB / UNCONN / CLOSE-WAIT / TIME-WAIT).
     *   Color-coded protocols (TCP=cyan, UDP=orange) and states (LISTEN=green, ESTAB=cyan, closing=orange).
     *   Right-click to copy connection info or kill owning process.
-    *   3-second auto-refresh with selection preservation.
-*   **Live System Log Viewer** *(New in v1.55)*
-    *   Real-time `journalctl` streaming via QProcess — no terminal needed.
+    *   Auto-refresh with selection preservation.
+*   **Live System Log Viewer:**
+    *   Real-time `journalctl` streaming — no terminal needed.
     *   Filter by priority (Emergency through Debug), systemd unit, and boot session.
     *   Color-coded log lines by severity (red=error, orange=warning, cyan=notice, green=info).
     *   Live search with highlighted matches, pause/resume, word wrap toggle, and jump-to-bottom.
@@ -88,115 +101,66 @@ The whole point is that each tab feeds into the next. Logs tell you what's wrong
     *   Buffer management: 5,000 line display cap, 10,000 line pause buffer.
 *   **System Tools:**
     *   **Caps Lock Toggle:** Global enable/disable switch for the Caps Lock key (Linux only).
-*   **Custom UI:** Built with PyQt6 using custom `QPainter` rendering for gauges, graphs, and icons (no image assets required, fully procedural).
+*   **Custom UI:** Built with Qt6 using custom `QPainter` rendering for gauges, graphs, and icons (no image assets required, fully procedural).
 
-## 📦 Installation
+## Installation
 
-**Most Users:** You do **NOT** need to install Python or follow the steps below if you just want to run the app.
-👉 **[Download the standalone executable](https://github.com/majoraexp/Taskwire/releases)**, mark it as executable (`chmod +x Taskwire`), and double-click to run.
+See [Taskwire_CPP/INSTALL.md](Taskwire_CPP/INSTALL.md) for detailed instructions covering all three methods:
 
-### Running from Source (Developers)
-If you want to modify the code or run it from source, follow these detailed steps.
+### Option 1: AppImage (recommended for most users)
 
-### Prerequisites
-*   **Python 3.8 or newer**: Verify with `python3 --version`.
-*   **Linux**: Tested on Fedora/Nobara, Ubuntu, Debian, and Arch.
+Download `Taskwire-x86_64.AppImage` from the [releases page](https://github.com/majoraexp/Taskwire/releases), then:
 
-### Step-by-Step Guide
+```bash
+chmod +x Taskwire-x86_64.AppImage
+./Taskwire-x86_64.AppImage
+```
 
-1.  **Clone the repository:**
-    Open your terminal and run:
-    ```bash
-    git clone https://github.com/majoraexp/Taskwire.git
-    cd Taskwire
-    ```
+No dependencies needed. Works on any Linux distro. ~32 MB.
 
-2.  **Create a virtual environment (Recommended):**
-    This keeps your system packages clean.
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    ```
-    *(You will see `(venv)` appear in your terminal prompt indicating it is active.)*
+### Option 2: Native binary (~990 KB)
 
-3.  **Install dependencies:**
-    This installs `PyQt6` (for the GUI) and `psutil` (for system monitoring).
-    ```bash
-    pip install -r Taskwire/requirements.txt
-    ```
+Download the `taskwire` binary and install Qt6 from your package manager:
 
-4.  **Run the application:**
-    ```bash
-    python3 Taskwire/main.py
-    ```
+```bash
+# Fedora / Nobara
+sudo dnf install qt6-qtbase qt6-qtbase-gui
 
-## 🛠 Building Executable (Linux)
+# Ubuntu / Debian
+sudo apt install qt6-base-dev libqt6widgets6
 
-### Standard Build (For your own machine)
-To create a standalone portable executable for your current OS version:
+# Arch / Manjaro
+sudo pacman -S qt6-base
+```
 
-1.  Ensure you have the dev dependencies installed (PyInstaller):
-    ```bash
-    pip install pyinstaller
-    ```
+Then: `chmod +x taskwire && ./taskwire`
 
-2.  Run the build script:
-    ```bash
-    ./build_app.sh
-    ```
+### Option 3: Build from source
 
-3.  The executable will be located at:
-    ```
-    Taskwire/dist/Taskwire
-    ```
+Requires CMake 3.16+, a C++17 compiler, and Qt6 development headers.
 
-### Building for Distribution (Nuitka / High Compatibility)
-**Recommended for Release.** 
-This method compiles the Python code to C++ using Nuitka inside a Docker container (Debian 11). This ensures the binary is highly optimized and compatible with older Linux distributions (glibc 2.31+, e.g., Ubuntu 20.04+, Fedora 32+).
+```bash
+git clone https://github.com/majoraexp/Taskwire.git
+cd Taskwire/Taskwire_CPP
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+cmake --build . -j$(nproc)
+./taskwire
+```
 
-**Prerequisites:** Docker
+## Python Version
 
-1.  Run the Nuitka build script:
-    ```bash
-    ./Nuitka_Build/build.sh
-    ```
+The original Python/PyQt6 version is still available in the `Taskwire/` directory. To run it from source:
 
-2.  The optimized executable will be located at:
-    ```
-    Nuitka_Build/output/Taskwire_Nuitka
-    ```
-
-### PyInstaller Build (Legacy / Testing)
-Useful for quick local builds without Docker.
-
-1.  Run the docker build script:
-    ```bash
-    ./build_with_docker.sh
-    ```
-
-2.  The compatible executable will be created at `Taskwire/dist/Taskwire`.
-
-See [COMPATIBILITY_GUIDE.md](COMPATIBILITY_GUIDE.md) for more details.
-
-## Taskwire for Windows
-
-Taskwire is now available for Windows 10/11! 
-
-This is a native port rewritten to support the Windows API, featuring the same "Cyberpunk HUD" aesthetic but optimized for the Windows ecosystem.
-
-### Key Features
-*   **Native Performance:** Compiled to C++ (via Nuitka) for instant startup and low resource usage.
-*   **Thermal Monitoring:** Integrated **LibreHardwareMonitor** bridge for reading CPU/GPU temps and fan speeds.
-*   **Safe & Secure:** Built to avoid antivirus false-positives common with other Python tools.
-
-**[Download Taskwire for Windows (v1.0)](https://github.com/majoraexp/Taskwire/releases)**  
-*(Look for `Taskwire-Windows-v1.0.zip` in the latest release assets)*
-
-For build instructions, see the **[Release Page](https://github.com/majoraexp/Taskwire/releases)**.
+```bash
+python3 -m venv venv && source venv/bin/activate
+pip install -r Taskwire/requirements.txt
+python3 Taskwire/main.py
+```
 
 ## Credits
 *   **Theme:** Inspired by the [Dracula Theme](https://draculatheme.com/).
-*   **Icons:** Procedurally generated via Python/Pillow.
+*   **Icons:** Procedurally generated via QPainter.
 
 ## Contributing
 

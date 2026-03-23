@@ -38,3 +38,4 @@ Taskwire_CPP/*.AppImage
 !taskwire_dashboard*.png
 !taskwire_processTab.png
 !taskwire_tab_*_v*.png
+!taskwire_2.0_*.png
