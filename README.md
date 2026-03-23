@@ -100,7 +100,7 @@ Taskwire v2.0.0 is a **complete rewrite from Python/PyQt6 to native C++17/Qt6**.
     *   Auto-scroll that pauses when you scroll up to read history, resumes at bottom.
     *   Buffer management: 5,000 line display cap, 10,000 line pause buffer.
 *   **System Tools:**
-    *   **Caps Lock Toggle:** Global enable/disable switch for the Caps Lock key (Linux only).
+    *   **Caps Lock Toggle:** Global enable/disable switch for the Caps Lock key.
 *   **Custom UI:** Built with Qt6 using custom `QPainter` rendering for gauges, graphs, and icons (no image assets required, fully procedural).
 
 ## Installation
