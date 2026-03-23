@@ -23,11 +23,18 @@ debug_run.log
 crash_log.txt
 windows_release_instructions.txt
 
+# C++ Build and Dist
+Taskwire_CPP/build/
+Taskwire_CPP/build-appimage/
+Taskwire_CPP/appimage-tools/
+Taskwire_CPP/*.AppImage
+
 # Screenshots (Large binary assets)
 *.png
 *.jpg
 !Taskwire/app_icon.png
 !Taskwire/assets/icon.png
+!Taskwire_CPP/app_icon.png
 !taskwire_dashboard*.png
 !taskwire_processTab.png
 !taskwire_tab_*_v*.png

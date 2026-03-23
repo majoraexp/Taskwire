@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Taskwire
+Comment=System monitor and task manager
+Exec=taskwire
+Icon=taskwire
+Categories=System;Monitor;
+Terminal=false
+StartupNotify=true
