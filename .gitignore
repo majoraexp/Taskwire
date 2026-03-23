@@ -2,7 +2,9 @@
 .gemini_context/
 CLAUDE.md
 
-# Python
+# Python (legacy — kept locally for reference)
+Taskwire/
+Windows_port_Nuitka/
 __pycache__/
 *.pyc
 venv/

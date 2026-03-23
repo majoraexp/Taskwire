@@ -150,13 +150,7 @@ cmake --build . -j$(nproc)
 
 ## Python Version
 
-The original Python/PyQt6 version is still available in the `Taskwire/` directory. To run it from source:
-
-```bash
-python3 -m venv venv && source venv/bin/activate
-pip install -r Taskwire/requirements.txt
-python3 Taskwire/main.py
-```
+The original Python/PyQt6 version is archived and available in earlier releases (v1.55.4 and below). The C++ rewrite is now the primary version.
 
 ## Credits
 *   **Theme:** Inspired by the [Dracula Theme](https://draculatheme.com/).
