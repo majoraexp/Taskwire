@@ -45,7 +45,7 @@ The whole point is that each tab feeds into the next. Logs tell you what's wrong
 
 Taskwire v2.0.0 is a **complete rewrite from Python/PyQt6 to native C++17/Qt6**.
 
-*   **990 KB binary** (vs 51 MB Python bundle) — 98% smaller
+*   **871 KB binary** (vs 51 MB Python bundle) — 98% smaller
 *   **~80 MB RAM** (vs ~250 MB Python) — 68% less memory
 *   **No GIL contention** — true multi-threaded polling
 *   **Direct /proc + /sys parsing** — no psutil dependency, no subprocess overhead
