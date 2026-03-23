@@ -35,7 +35,4 @@ Taskwire_CPP/*.AppImage
 !Taskwire/app_icon.png
 !Taskwire/assets/icon.png
 !Taskwire_CPP/app_icon.png
-!taskwire_dashboard*.png
-!taskwire_processTab.png
-!taskwire_tab_*_v*.png
 !taskwire_2.0_*.png
