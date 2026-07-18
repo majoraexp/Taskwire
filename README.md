@@ -47,9 +47,12 @@ The whole point is that each tab feeds into the next. Logs tell you what's wrong
   On tall/portrait monitors, every row keeps its landscape proportions and grows uniformly: graphs expand, the memory gauge and
   disk drive icons (and their text) enlarge with their cards, and everything reverts cleanly when the window moves back to a
   smaller display.
+  
 **Per-process GPU % column** in the Processes tab (AMD DRM fdinfo engine counters), including GPU usage of protected processes
   like kwin via a one-time admin authorization. 
+  
 **Unattributed CPU time** (interrupts, short-lived processes) is now shown in the System / Kernel entry.
+
 **Wildcard search** in Processes, Services, and Connections tabs (fire*, *ssh*), plus a PID column option in the grouped process      view.
 
 Taskwire v2.0.0 (and onward) is a **complete rewrite from Python/PyQt6 to native C++17/Qt6**.
