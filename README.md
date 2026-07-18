@@ -41,9 +41,18 @@ Taskwire gives you a full diagnostic loop across its tabs, so you can go from "s
 
 The whole point is that each tab feeds into the next. Logs tell you what's wrong, Dashboard tells you whether the system is stressed, Services or Processes let you fix it, and Connections covers the network angle. You stay in one window the entire time.
 
-## What's New in v2.0.0
+## What's New in v2.0.1
 
-Taskwire v2.0.0 is a **complete rewrite from Python/PyQt6 to native C++17/Qt6**.
+**Adaptive dashboard scaling** — the dashboard now scales gracefully to any display shape. 
+  On tall/portrait monitors, every row keeps its landscape proportions and grows uniformly: graphs expand, the memory gauge and
+  disk drive icons (and their text) enlarge with their cards, and everything reverts cleanly when the window moves back to a
+  smaller display.
+**Per-process GPU % column** in the Processes tab (AMD DRM fdinfo engine counters), including GPU usage of protected processes
+  like kwin via a one-time admin authorization. 
+**Unattributed CPU time** (interrupts, short-lived processes) is now shown in the System / Kernel entry.
+**Wildcard search** in Processes, Services, and Connections tabs (fire*, *ssh*), plus a PID column option in the grouped process      view.
+
+Taskwire v2.0.0 (and onward) is a **complete rewrite from Python/PyQt6 to native C++17/Qt6**.
 
 *   **871 KB binary** (vs 51 MB Python bundle) — 98% smaller
 *   **~80 MB RAM** (vs ~250 MB Python) — 68% less memory
