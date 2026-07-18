@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QSettings>
+#include <QIcon>
 #include "mainwindow.h"
 #include "styles.h"
 #include "systemmonitor.h"
@@ -8,6 +9,9 @@ int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     app.setOrganizationName("Taskwire");
     app.setApplicationName("Taskwire");
+
+    // Icon is embedded via resources.qrc — works regardless of install location
+    app.setWindowIcon(QIcon(QStringLiteral(":/app_icon.png")));
 
     // Register metatypes for cross-thread signal/slot
     qRegisterMetaType<CpuStats>("CpuStats");

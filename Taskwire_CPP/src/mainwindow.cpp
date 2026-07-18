@@ -1,5 +1,4 @@
 #include "mainwindow.h"
-#include "graphutils.h"
 #include "styles.h"
 
 #include <QTabWidget>
@@ -12,6 +11,8 @@
 #include <QScrollArea>
 #include <QActionGroup>
 #include <QSettings>
+#include <QScreen>
+#include <QTimer>
 
 // ── Constructor / Destructor ────────────────────────────────
 
@@ -19,7 +20,6 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     setWindowTitle("Taskwire");
-    resize(1125, 1236);
     setMinimumSize(800, 500);
 
     createMenu();
@@ -58,6 +58,40 @@ MainWindow::MainWindow(QWidget *parent)
     // Tools tab
     m_toolsWidget = new ToolsWidget(this);
     m_tabs->addTab(m_toolsWidget, "Tools");
+
+    // Default size: whatever the dashboard needs to show without its outer
+    // scrollbar, clamped to the screen's available area. QMainWindow's own
+    // sizeHint() caches early and never tracks the scroll area content, so
+    // measure the dashboard widget directly. Shrinking the window below
+    // this still scrolls as before.
+    const QRect avail = QGuiApplication::primaryScreen()->availableGeometry();
+    const QSize maxSize(avail.width() - 20, avail.height() - 60);
+    const auto margins = mainLayout->contentsMargins();
+    const int chromeH = menuBar()->sizeHint().height()
+                        + m_tabs->tabBar()->sizeHint().height()
+                        + margins.top() + margins.bottom();
+    const QSize dashHint = dashScroll->widget()->sizeHint();
+    resize(QSize(qMax(1125, dashHint.width() + margins.left() + margins.right() + 4),
+                 dashHint.height() + chromeH + 4)
+               .boundedTo(maxSize));
+    m_autoSize = size();
+
+    // The dashboard hint grows once the first sensor data populates the
+    // temp/fan legends and disk icons, so re-measure shortly after startup
+    // and correct the size — unless the user already resized the window.
+    QTimer::singleShot(1500, this, [this, dashScroll, maxSize]() {
+        // Row hints have grown (legends, disk icons) — rebalance the
+        // proportional stretch factors even if we skip the resize below.
+        updateDashboardStretch();
+        if (size() != m_autoSize || !dashScroll->isVisible())
+            return;
+        const QSize hint = dashScroll->widget()->sizeHint();
+        const int extraW = width() - dashScroll->viewport()->width();
+        const int extraH = height() - dashScroll->viewport()->height();
+        resize(QSize(qMax(1125, hint.width() + extraW),
+                     hint.height() + extraH + 2)
+                   .boundedTo(maxSize));
+    });
 
     // ── Start worker thread ─────────────────────────────────
     m_workerThread = new QThread(this);
@@ -165,6 +199,7 @@ QWidget* MainWindow::createDashboardTab() {
     auto *tab = new QWidget();
     auto *layout = new QVBoxLayout(tab);
     layout->setSpacing(10);
+    m_dashLayout = layout;
 
     // ── Row 1: Top Panel (CPU gauge | GPU gauge | Fan graph) ─
     m_topPanel = new TopPanelWidget();
@@ -220,8 +255,17 @@ QWidget* MainWindow::createDashboardTab() {
     m_cpuWidget = new CpuWidget();
     layout->addWidget(m_cpuWidget);
 
-    layout->addStretch();
+    updateDashboardStretch();
     return tab;
+}
+
+// Stretch factors proportional to each row's natural height: surplus
+// vertical space scales every row by the same factor, so the dashboard
+// keeps its landscape proportions on any display shape (e.g. a maximized
+// window on a portrait monitor).
+void MainWindow::updateDashboardStretch() {
+    for (int i = 0; i < m_dashLayout->count(); ++i)
+        m_dashLayout->setStretch(i, qMax(1, m_dashLayout->itemAt(i)->sizeHint().height()));
 }
 
 // ── Data update slots ───────────────────────────────────────

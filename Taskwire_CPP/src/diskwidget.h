@@ -11,7 +11,6 @@
 #include <QGridLayout>
 #include <QHash>
 #include <QVector>
-#include <QPoint>
 #include <optional>
 
 // ── ModernDriveIcon ─────────────────────────────────────────
@@ -42,10 +41,20 @@ public:
     void updateData(const DiskUsageStats &stats);
     void refreshTheme() override;
 
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
+
 private:
     void selectDrive(const QString &path);
     void refreshDisplay();
+    void updateIconSizes();
+    void applyTextStyles();
 
+    int m_iconSide = 45;
+    int m_naturalHint = 0;
+    double m_uiScale = 1.0;
+    QWidget *m_iconsArea;
     QHBoxLayout *m_iconsLayout;
     QHash<QString, ModernDriveIcon *> m_buttons;
     QString m_selectedPath;
@@ -92,5 +101,4 @@ private:
     QWidget *m_graphArea;
     GameTooltip *m_tooltip;
     int m_hoverIndex = -1;
-    QPoint m_hoverPos;
 };

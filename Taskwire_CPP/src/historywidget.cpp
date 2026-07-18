@@ -99,7 +99,6 @@ bool CpuHistoryWidget::eventFilter(QObject *watched, QEvent *event) {
             index = qBound(0, index, m_dataPoints.size() - 1);
 
             m_hoverIndex = index;
-            m_hoverPos = me->pos();
 
             int interval = qMax(1, m_updateInterval);
             int secondsAgo = (m_maxlen - 1 - index) * interval;

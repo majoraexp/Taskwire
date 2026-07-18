@@ -130,7 +130,6 @@ bool NetworkWidget::eventFilter(QObject *watched, QEvent *event) {
             int index = GraphUtils::hoverIndexFromX(me->pos().x(), w, m_maxlen);
 
             m_hoverIndex = index;
-            m_hoverPos = me->pos();
 
             int screenIdx = m_hoverIndex;
             int offset = (m_maxlen - 1) - screenIdx;

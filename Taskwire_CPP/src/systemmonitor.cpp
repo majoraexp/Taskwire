@@ -3,7 +3,6 @@
 #include <QTimer>
 #include <QDir>
 #include <QFile>
-#include <QTextStream>
 #include <QProcess>
 #include <QElapsedTimer>
 #include <QStandardPaths>
@@ -11,8 +10,10 @@
 #include <sys/statvfs.h>
 #include <unistd.h>
 #include <pwd.h>
+#include <dirent.h>
 #include <cmath>
 #include <algorithm>
+#include <QDateTime>
 
 // ── Helper: read entire small file into QString ─────────────
 
@@ -47,6 +48,11 @@ SystemMonitorWorker::SystemMonitorWorker(QObject *parent)
     // Check for lsblk
     m_lsblkPath = QStandardPaths::findExecutable(QStringLiteral("lsblk"));
 
+    // Check for pkexec + bash (GPU escalation)
+    m_pkexecPath = QStandardPaths::findExecutable(QStringLiteral("pkexec"));
+    m_bashPath = QStandardPaths::findExecutable(QStringLiteral("bash"));
+    m_gpuEscalationAvailable = !m_pkexecPath.isEmpty() && !m_bashPath.isEmpty();
+
     // Process monitoring init
     m_pageSize = sysconf(_SC_PAGESIZE);
     if (m_pageSize <= 0) m_pageSize = 4096;
@@ -74,15 +80,16 @@ void SystemMonitorWorker::startPolling() {
     connect(m_fastTimer, &QTimer::timeout, this, &SystemMonitorWorker::pollFast);
 
     m_slowTimer = new QTimer(this);
-    m_slowTimer->setInterval(5000); // GPU, temps, fans, disk usage — 5s (Gemini: lsblk is heavy)
+    m_slowTimer->setInterval(5000); // Disk usage only — 5s (lsblk subprocess is heavy)
     connect(m_slowTimer, &QTimer::timeout, this, &SystemMonitorWorker::pollSlow);
 
     m_mediumTimer = new QTimer(this);
     m_mediumTimer->setInterval(1000); // Process list — 1s
     connect(m_mediumTimer, &QTimer::timeout, this, &SystemMonitorWorker::pollMedium);
 
-    // Initialize elapsed timer for accurate rate deltas
+    // Initialize elapsed timers for accurate rate deltas
     m_fastElapsed.start();
+    m_procPollElapsed.start();
 
     // First poll immediately
     pollFast();
@@ -98,9 +105,10 @@ void SystemMonitorWorker::stopPolling() {
     if (m_fastTimer) m_fastTimer->stop();
     if (m_slowTimer) m_slowTimer->stop();
     if (m_mediumTimer) m_mediumTimer->stop();
+    stopEscalatedHelper();
 }
 
-// ── Fast poll (250ms): CPU, memory, disk IO, network ────────
+// ── Fast poll (500ms): CPU, memory, GPU, disk IO, network, temps, fans ──
 
 void SystemMonitorWorker::pollFast() {
     double deltaSec = m_fastElapsed.restart() / 1000.0;
@@ -278,7 +286,7 @@ GpuStats SystemMonitorWorker::readGpu() {
         discoverAmdGpuPaths();
     }
 
-    // NVIDIA: nvidia-smi (synchronous in worker thread, 1s interval)
+    // NVIDIA: nvidia-smi (synchronous in worker thread, runs on the 500ms fast poll)
     if (m_hasNvidiaSmi) {
         QProcess proc;
         proc.start(m_nvidiaSmiPath,
@@ -608,10 +616,45 @@ static QString stateToString(QChar c) {
     }
 }
 
+// ── GPU fdinfo ns parser ────────────────────────────────────
+// Accepts "123456", "123456 ns", "  123456  ns "
+
+static bool parseEngineNs(QStringView v, quint64 &out) {
+    auto trimmed = v.trimmed();
+    if (trimmed.isEmpty()) return false;
+    int spaceIdx = -1;
+    for (int i = 0; i < trimmed.size(); ++i) {
+        if (!trimmed[i].isDigit()) { spaceIdx = i; break; }
+    }
+    QStringView numStr = (spaceIdx < 0) ? trimmed : trimmed.left(spaceIdx);
+    if (numStr.isEmpty()) return false;
+    bool ok = false;
+    quint64 v64 = numStr.toULongLong(&ok);
+    if (!ok) return false;
+    if (spaceIdx >= 0) {
+        QStringView unit = trimmed.mid(spaceIdx).trimmed();
+        if (!unit.isEmpty() && unit != QLatin1String("ns")) return false;
+    }
+    out = v64;
+    return true;
+}
+
 // ── readProcesses ───────────────────────────────────────────
 
 ProcessStats SystemMonitorWorker::readProcesses() {
     ProcessStats stats;
+
+    // 0. GPU wall-clock elapsed for this poll cycle
+    qint64 nowNs = m_procPollElapsed.nsecsElapsed();
+    quint64 elapsedNs = 0;
+    if (!m_gpuProcFirstPoll) {
+        elapsedNs = static_cast<quint64>(nowNs - m_prevProcPollNs);
+    }
+    m_prevProcPollNs = nowNs;
+
+    QSet<ProcGpuKey> gpuSeenThisPoll;
+    QSet<ProcKey> gpuScannedThisPoll;
+    QHash<int, ProcKey> gpuDeniedPids;
 
     // 1. Read current total CPU jiffies (for per-process CPU% delta)
     CpuJiffies totalJiffies;
@@ -758,6 +801,136 @@ ProcessStats SystemMonitorWorker::readProcesses() {
 
         totalRss += rssBytes;
 
+        // ── GPU% via DRM fdinfo ─────────────────────────────
+        double gpuPercent = 0.0;
+        QVector<ProcGpuClientDelta> gpuClientDeltas;
+
+        if (pid > 0) {
+            QString fdinfoPath = pidPath + QStringLiteral("/fdinfo");
+            DIR *fdinfoDir = opendir(fdinfoPath.toUtf8().constData());
+
+            if (!fdinfoDir) {
+                if (errno == EACCES) {
+                    gpuDeniedPids[pid] = key;
+                }
+            } else {
+                gpuScannedThisPoll.insert(key);
+
+                // Also open fd dir for readlink prefilter
+                QString fdDirPath = pidPath + QStringLiteral("/fd");
+
+                QSet<DrmClientKey> seenClientsInPid;
+                QHash<DrmClientKey, quint64> perClientDeltaNs;
+
+                struct dirent *dentry;
+                while ((dentry = readdir(fdinfoDir)) != nullptr) {
+                    if (dentry->d_name[0] == '.') continue;
+
+                    // Readlink prefilter: skip non-DRM fds
+                    QString fdNum = QString::fromLatin1(dentry->d_name);
+                    QString fdLink = fdDirPath + QLatin1Char('/') + fdNum;
+                    char linkBuf[256];
+                    ssize_t linkLen = readlink(fdLink.toUtf8().constData(), linkBuf, sizeof(linkBuf) - 1);
+                    if (linkLen > 0) {
+                        linkBuf[linkLen] = '\0';
+                        QByteArray target(linkBuf, linkLen);
+                        if (!target.startsWith("/dev/dri/renderD") &&
+                            !target.startsWith("/dev/dri/card") &&
+                            !target.startsWith("/dev/dri/controlD")) {
+                            continue;
+                        }
+                    }
+                    // readlink failure → fall through and try fdinfo (race tolerance)
+
+                    // Parse fdinfo file
+                    QString fdinfoFile = fdinfoPath + QLatin1Char('/') + fdNum;
+                    QFile f(fdinfoFile);
+                    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+
+                    QByteArray content = f.readAll();
+                    f.close();
+
+                    QString driver;
+                    QString pdev;
+                    bool hasClientId = false;
+                    quint64 clientId = 0;
+
+                    // First pass: find driver, pdev, client-id
+                    const auto lines = content.split('\n');
+                    for (const QByteArray &lineRaw : lines) {
+                        QString line = QString::fromUtf8(lineRaw);
+                        if (line.startsWith(QLatin1String("drm-driver:"))) {
+                            driver = line.mid(11).trimmed();
+                        } else if (line.startsWith(QLatin1String("drm-pdev:"))) {
+                            pdev = line.mid(9).trimmed();
+                        } else if (line.startsWith(QLatin1String("drm-client-id:"))) {
+                            bool ok = false;
+                            quint64 cid = line.mid(14).trimmed().toULongLong(&ok);
+                            if (ok) { clientId = cid; hasClientId = true; }
+                        }
+                    }
+
+                    if (driver.isEmpty() || !hasClientId) continue;
+
+                    DrmClientKey clientKey{driver, pdev, clientId};
+                    if (seenClientsInPid.contains(clientKey)) continue;
+                    seenClientsInPid.insert(clientKey);
+
+                    // Second pass: parse drm-engine-* counters
+                    for (const QByteArray &lineRaw : lines) {
+                        QString line = QString::fromUtf8(lineRaw);
+                        if (!line.startsWith(QLatin1String("drm-engine-"))) continue;
+                        if (line.startsWith(QLatin1String("drm-engine-capacity-"))) continue;
+
+                        int colonIdx = line.indexOf(QLatin1Char(':'));
+                        if (colonIdx < 0) continue;
+
+                        QString engineName = line.mid(11, colonIdx - 11);
+                        QStringView valueStr = QStringView(line).mid(colonIdx + 1);
+
+                        quint64 ns = 0;
+                        if (!parseEngineNs(valueStr, ns)) continue;
+
+                        ProcGpuKey gpuKey{key, clientKey, engineName};
+                        gpuSeenThisPoll.insert(gpuKey);
+
+                        quint64 delta = 0;
+                        auto prevIt = m_prevProcGpuEngine.find(gpuKey);
+                        if (prevIt == m_prevProcGpuEngine.end()) {
+                            m_prevProcGpuEngine[gpuKey] = ns;
+                        } else if (ns >= *prevIt) {
+                            delta = ns - *prevIt;
+                            *prevIt = ns;
+                        }
+                        // else: rollback — keep previous, delta stays 0
+
+                        perClientDeltaNs[clientKey] += delta;
+                    }
+                }
+                closedir(fdinfoDir);
+
+                // Compute per-pid GPU% and build client deltas
+                quint64 pidTotalNs = 0;
+                for (auto it = perClientDeltaNs.cbegin(); it != perClientDeltaNs.cend(); ++it) {
+                    pidTotalNs += it.value();
+                    if (it.value() > 0) {
+                        ProcGpuClientDelta cd;
+                        cd.driver = it.key().driver;
+                        cd.pdev = it.key().pdev;
+                        cd.clientId = it.key().clientId;
+                        cd.deltaNs = it.value();
+                        gpuClientDeltas.append(cd);
+                    }
+                }
+
+                if (elapsedNs > 0) {
+                    gpuPercent = std::clamp(
+                        static_cast<double>(pidTotalNs) / static_cast<double>(elapsedNs) * 100.0,
+                        0.0, 100.0);
+                }
+            }
+        }
+
         ProcessInfo info;
         info.pid = pid;
         info.ppid = ppid;
@@ -766,18 +939,27 @@ ProcessStats SystemMonitorWorker::readProcesses() {
         info.status = stateToString(stateChar);
         info.cpuPercent = cpuPercent;
         info.memoryPercent = memPercent;
+        info.gpuPercent = gpuPercent;
         info.rssBytes = rssBytes;
         info.sharedBytes = sharedBytes;
         info.swapBytes = swapBytes;
         info.readBytes = readB;
         info.writeBytes = writeB;
         info.numThreads = numThreads;
+        info.gpuClientDeltas = gpuClientDeltas;
 
         stats.processes.append(info);
     }
 
+    // 3b. Escalated GPU for denied PIDs (non-dumpable / other-user processes).
+    // Asynchronous — never blocks the worker waiting on the pkexec helper.
+    pumpEscalatedGpu(gpuDeniedPids, seenKeys, gpuSeenThisPoll,
+                     gpuScannedThisPoll, elapsedNs, stats);
+
     // 4. Memory normalization (Python parity)
     long long totalUsed = m_totalMemBytes - availableBytes;
+    double sysMemPercent = 0.0;
+    long long sysMemBytes = 0;
     if (totalRss > totalUsed && totalUsed > 0) {
         double ratio = static_cast<double>(totalUsed) / totalRss;
         for (auto &p : stats.processes) {
@@ -786,18 +968,36 @@ ProcessStats SystemMonitorWorker::readProcesses() {
             p.sharedBytes = static_cast<long long>(p.sharedBytes * ratio);
         }
     } else {
-        long long remainder = std::max(0LL, totalUsed - totalRss);
-        if (remainder > 0) {
-            ProcessInfo sysEntry;
-            sysEntry.pid = -1;
-            sysEntry.name = QStringLiteral("System / Kernel / Other");
-            sysEntry.memoryPercent = (m_totalMemBytes > 0)
-                ? static_cast<double>(remainder) / m_totalMemBytes * 100.0 : 0.0;
-            sysEntry.rssBytes = remainder;
-            sysEntry.user = QStringLiteral("root");
-            sysEntry.status = QStringLiteral("running");
-            stats.processes.append(sysEntry);
+        sysMemBytes = std::max(0LL, totalUsed - totalRss);
+        if (sysMemBytes > 0 && m_totalMemBytes > 0)
+            sysMemPercent = static_cast<double>(sysMemBytes) / m_totalMemBytes * 100.0;
+    }
+
+    // 4b. CPU gap: overall CPU% minus sum of per-process CPU%
+    double sysCpuPercent = 0.0;
+    if (!m_procFirstPoll) {
+        long long totalDelta = totalJiffies.totalTicks() - m_prevProcJiffies.totalTicks();
+        long long idleDelta = totalJiffies.idleTicks() - m_prevProcJiffies.idleTicks();
+        if (totalDelta > 0) {
+            double overallCpu = static_cast<double>(totalDelta - idleDelta) / totalDelta * 100.0;
+            double sumProcCpu = 0.0;
+            for (const auto &p : stats.processes)
+                sumProcCpu += p.cpuPercent;
+            sysCpuPercent = std::max(0.0, overallCpu - sumProcCpu);
         }
+    }
+
+    // 4c. Create synthetic entry if there's any unattributed memory or CPU
+    if (sysMemBytes > 0 || sysCpuPercent > 0.05) {
+        ProcessInfo sysEntry;
+        sysEntry.pid = -1;
+        sysEntry.name = QStringLiteral("System / Kernel / Other");
+        sysEntry.memoryPercent = sysMemPercent;
+        sysEntry.rssBytes = sysMemBytes;
+        sysEntry.cpuPercent = sysCpuPercent;
+        sysEntry.user = QStringLiteral("root");
+        sysEntry.status = QStringLiteral("running");
+        stats.processes.append(sysEntry);
     }
 
     // 5. Clean up stale entries from jiffies cache
@@ -809,12 +1009,337 @@ ProcessStats SystemMonitorWorker::readProcesses() {
             ++it;
     }
 
-    // 6. Update state for next poll
+    // 6. Prune GPU engine state — stale engines of PIDs scanned this poll,
+    //    plus all state for PIDs that no longer exist
+    {
+        auto git = m_prevProcGpuEngine.begin();
+        while (git != m_prevProcGpuEngine.end()) {
+            bool procGone = !seenKeys.contains(git.key().proc);
+            bool staleEngine = gpuScannedThisPoll.contains(git.key().proc) &&
+                               !gpuSeenThisPoll.contains(git.key());
+            if (procGone || staleEngine) {
+                git = m_prevProcGpuEngine.erase(git);
+            } else {
+                ++git;
+            }
+        }
+    }
+
+    // 7. Update state for next poll
     m_prevProcJiffies = totalJiffies;
     m_procFirstPoll = false;
+    m_gpuProcFirstPoll = false;
 
+    stats.gpuPollElapsedNs = elapsedNs;
     stats.valid = true;
     return stats;
+}
+
+// ── Persistent escalated GPU helper via pkexec ──────────────
+
+// One find(1) sweep per request instead of a readlink fork per fd —
+// with hundreds of denied pids the fork-per-fd loop took seconds per
+// scan (and pegged a core); a single find does the same in ~200ms.
+static const char *s_helperScript =
+    "while IFS= read -r line; do "
+    "  case \"$line\" in "
+    "    QUIT) exit 0 ;; "
+    "    PIDS:*) "
+    "      pids=\"${line#PIDS:}\"; "
+    "      if [ -n \"${pids// /}\" ]; then "
+    "        dirs=''; "
+    "        for pid in $pids; do dirs=\"$dirs /proc/$pid/fd\"; done; "
+    "        for link in $(find $dirs -maxdepth 1 -lname '/dev/dri/*' 2>/dev/null); do "
+    "          fd=\"${link##*/}\"; rest=\"${link%/fd/*}\"; pid=\"${rest##*/}\"; "
+    "          echo \"===PID:${pid}:FD:${fd}===\"; "
+    "          cat \"/proc/$pid/fdinfo/$fd\" 2>/dev/null; "
+    "        done; "
+    "      fi; "
+    "      echo '===DONE==='; "
+    "      ;; "
+    "  esac; "
+    "done";
+
+bool SystemMonitorWorker::ensureEscalatedHelper() {
+    if (m_escalatedHelper && m_escalatedHelper->state() == QProcess::Running)
+        return true;
+
+    if (!m_gpuEscalationAvailable || m_gpuEscalationAttempted)
+        return false;
+
+    m_gpuEscalationAttempted = true;
+
+    delete m_escalatedHelper;
+    m_escalatedHelper = new QProcess(this);
+
+    QStringList args;
+    args << m_bashPath << QStringLiteral("-c") << QString::fromLatin1(s_helperScript);
+    m_escalatedHelper->start(m_pkexecPath, args);
+
+    if (!m_escalatedHelper->waitForStarted(15000)) {
+        delete m_escalatedHelper;
+        m_escalatedHelper = nullptr;
+        m_gpuEscalationAvailable = false;
+        return false;
+    }
+
+    // Send a test request and wait for the full DONE marker to confirm auth
+    // succeeded (a single waitForReadyRead can deliver a partial response)
+    m_escalatedHelper->write("PIDS:\n");
+    QByteArray testResponse;
+    QElapsedTimer testTimer;
+    testTimer.start();
+    while (!testResponse.contains("===DONE===")) {
+        if (testTimer.elapsed() > 20000 ||
+            !m_escalatedHelper->waitForReadyRead(15000)) {
+            int exitCode = m_escalatedHelper->exitCode();
+            if (exitCode == 126 || exitCode == 127)
+                m_gpuEscalationAvailable = false;
+            delete m_escalatedHelper;
+            m_escalatedHelper = nullptr;
+            return false;
+        }
+        testResponse.append(m_escalatedHelper->readAllStandardOutput());
+    }
+
+    // Helper validated — reset async request state
+    m_escalatedBuffer.clear();
+    m_escalatedPending = false;
+    m_escalatedElapsed.start();
+    return true;
+}
+
+void SystemMonitorWorker::stopEscalatedHelper() {
+    if (!m_escalatedHelper) return;
+    if (m_escalatedHelper->state() == QProcess::Running) {
+        m_escalatedHelper->write("QUIT\n");
+        m_escalatedHelper->waitForFinished(2000);
+    }
+    delete m_escalatedHelper;
+    m_escalatedHelper = nullptr;
+    m_escalatedBuffer.clear();
+    m_escalatedPending = false;
+}
+
+// ── Async escalated GPU pump ────────────────────────────────
+// Called every process poll. Never blocks on the helper: drains any
+// completed response, re-applies cached per-pid GPU rates to the
+// current stats, and sends the next request only when the previous
+// one has finished. (The old synchronous wait stalled the whole
+// worker thread — including the 500ms dashboard timer — for up to
+// 5s whenever the helper fell behind.)
+
+void SystemMonitorWorker::pumpEscalatedGpu(
+    const QHash<int, ProcKey> &deniedPids,
+    const QSet<ProcKey> &seenKeys,
+    QSet<ProcGpuKey> &gpuSeenThisPoll,
+    QSet<ProcKey> &gpuScannedThisPoll,
+    quint64 pollElapsedNs,
+    ProcessStats &stats)
+{
+    if (!m_gpuEscalationAvailable) return;
+    if (!m_escalatedHelper && deniedPids.isEmpty()) return;
+    if (!ensureEscalatedHelper()) return;
+
+    qint64 now = QDateTime::currentMSecsSinceEpoch();
+
+    // 1. Drain helper output; parse once a full response has arrived
+    m_escalatedBuffer.append(m_escalatedHelper->readAllStandardOutput());
+    int doneIdx = m_escalatedBuffer.indexOf("===DONE===");
+    if (doneIdx >= 0) {
+        QByteArray response = m_escalatedBuffer.left(doneIdx);
+        m_escalatedBuffer.remove(0, doneIdx + 10); // strlen("===DONE===")
+        double responseSec = m_escalatedElapsed.restart() / 1000.0;
+        parseEscalatedResponse(response, responseSec,
+                               gpuSeenThisPoll, gpuScannedThisPoll);
+        m_escalatedPending = false;
+    }
+
+    // Wedge guard: helper unresponsive for far too long — give up
+    if (m_escalatedPending && now - m_escalatedRequestMs > 20000) {
+        stopEscalatedHelper();
+        m_gpuEscalationAvailable = false;
+        return;
+    }
+
+    // 2. Drop cached rates for processes that no longer exist
+    {
+        auto it = m_escalatedRates.begin();
+        while (it != m_escalatedRates.end()) {
+            if (!seenKeys.contains(it.key()))
+                it = m_escalatedRates.erase(it);
+            else
+                ++it;
+        }
+    }
+
+    // 3. Apply cached rates to this poll's process entries
+    for (auto it = deniedPids.cbegin(); it != deniedPids.cend(); ++it) {
+        auto rit = m_escalatedRates.constFind(it.value());
+        if (rit == m_escalatedRates.constEnd()) continue;
+
+        for (auto &p : stats.processes) {
+            if (p.pid != it.key()) continue;
+            p.gpuPercent = rit->ratePercent;
+            // Rates are ns-per-second — scale to this poll's window so the
+            // grouped view (which divides by gpuPollElapsedNs) stays correct
+            p.gpuClientDeltas = rit->clientRates;
+            for (auto &cd : p.gpuClientDeltas)
+                cd.deltaNs = static_cast<quint64>(
+                    cd.deltaNs * (static_cast<double>(pollElapsedNs) / 1e9));
+            break;
+        }
+    }
+
+    // 4. Send the next request once the previous one completed
+    if (!m_escalatedPending && !deniedPids.isEmpty() &&
+        now - m_lastEscalatedReadMs >= 2000) {
+        m_lastEscalatedReadMs = now;
+        m_escalatedRequestMs = now;
+        m_escalatedSentKeys = deniedPids;
+
+        QStringList pidStrs;
+        for (auto it = deniedPids.cbegin(); it != deniedPids.cend(); ++it)
+            pidStrs.append(QString::number(it.key()));
+        QString request = QStringLiteral("PIDS:") + pidStrs.join(QLatin1Char(' '))
+                          + QLatin1Char('\n');
+        m_escalatedHelper->write(request.toUtf8());
+        m_escalatedPending = true;
+    }
+}
+
+// Parse one complete helper response. Engine deltas are divided by the
+// time between responses (not the 1s poll interval — responses arrive
+// every ~2s) and cached as per-second rates in m_escalatedRates.
+
+void SystemMonitorWorker::parseEscalatedResponse(
+    const QByteArray &response, double responseSec,
+    QSet<ProcGpuKey> &gpuSeenThisPoll,
+    QSet<ProcKey> &gpuScannedThisPoll)
+{
+    const QList<QByteArray> lines = response.split('\n');
+
+    int currentPid = 0;
+    ProcKey currentKey;
+    bool skipPid = true;
+
+    // Per-fd identity state
+    QString driver;
+    QString pdev;
+    bool hasClientId = false;
+    quint64 clientId = 0;
+    bool fdCommitted = false;  // first engine line commits the client
+    bool fdDuplicate = false;  // fd belongs to an already-counted client
+
+    QSet<DrmClientKey> seenClientsInPid;
+    QHash<DrmClientKey, quint64> perClientDeltaNs;
+
+    auto flushPid = [&]() {
+        if (currentPid <= 0 || skipPid) return;
+
+        gpuScannedThisPoll.insert(currentKey);
+
+        quint64 pidTotalNs = 0;
+        EscalatedGpuRate rate;
+        for (auto cit = perClientDeltaNs.cbegin(); cit != perClientDeltaNs.cend(); ++cit) {
+            pidTotalNs += cit.value();
+            if (cit.value() > 0 && responseSec > 0) {
+                ProcGpuClientDelta cd;
+                cd.driver = cit.key().driver;
+                cd.pdev = cit.key().pdev;
+                cd.clientId = cit.key().clientId;
+                cd.deltaNs = static_cast<quint64>(cit.value() / responseSec);
+                rate.clientRates.append(cd);
+            }
+        }
+        rate.ratePercent = (responseSec > 0)
+            ? std::clamp(static_cast<double>(pidTotalNs)
+                         / (responseSec * 1e9) * 100.0, 0.0, 100.0)
+            : 0.0;
+        m_escalatedRates[currentKey] = rate;
+    };
+
+    for (const QByteArray &rawLine : lines) {
+        QString line = QString::fromUtf8(rawLine);
+
+        if (line.startsWith(QLatin1String("===PID:"))) {
+            QStringList parts = line.mid(7).split(QLatin1Char(':'));
+            int markerPid = (parts.size() >= 3) ? parts[0].toInt() : 0;
+
+            if (markerPid != currentPid) {
+                flushPid();
+                currentPid = markerPid;
+                seenClientsInPid.clear();
+                perClientDeltaNs.clear();
+                auto keyIt = m_escalatedSentKeys.constFind(currentPid);
+                if (keyIt != m_escalatedSentKeys.constEnd()) {
+                    currentKey = *keyIt;
+                    skipPid = false;
+                } else {
+                    skipPid = true; // pid we never asked about
+                }
+            }
+
+            // New fd block — reset identity state
+            driver.clear();
+            pdev.clear();
+            hasClientId = false;
+            clientId = 0;
+            fdCommitted = false;
+            fdDuplicate = false;
+            continue;
+        }
+
+        if (currentPid <= 0 || skipPid) continue;
+
+        if (line.startsWith(QLatin1String("drm-driver:"))) {
+            driver = line.mid(11).trimmed();
+        } else if (line.startsWith(QLatin1String("drm-pdev:"))) {
+            pdev = line.mid(9).trimmed();
+        } else if (line.startsWith(QLatin1String("drm-client-id:"))) {
+            bool ok = false;
+            quint64 cid = line.mid(14).trimmed().toULongLong(&ok);
+            if (ok) { clientId = cid; hasClientId = true; }
+        } else if (line.startsWith(QLatin1String("drm-engine-")) &&
+                   !line.startsWith(QLatin1String("drm-engine-capacity-"))) {
+            if (driver.isEmpty() || !hasClientId) continue;
+
+            DrmClientKey ck{driver, pdev, clientId};
+            if (!fdCommitted) {
+                fdCommitted = true;
+                fdDuplicate = seenClientsInPid.contains(ck);
+                if (!fdDuplicate)
+                    seenClientsInPid.insert(ck);
+            }
+            if (fdDuplicate) continue;
+
+            int colonIdx = line.indexOf(QLatin1Char(':'));
+            if (colonIdx < 0) continue;
+
+            QString engineName = line.mid(11, colonIdx - 11);
+            QStringView valueStr = QStringView(line).mid(colonIdx + 1);
+
+            quint64 ns = 0;
+            if (!parseEngineNs(valueStr, ns)) continue;
+
+            ProcGpuKey gpuKey{currentKey, ck, engineName};
+            gpuSeenThisPoll.insert(gpuKey);
+
+            quint64 delta = 0;
+            auto prevIt = m_prevProcGpuEngine.find(gpuKey);
+            if (prevIt == m_prevProcGpuEngine.end()) {
+                m_prevProcGpuEngine[gpuKey] = ns;
+            } else if (ns >= *prevIt) {
+                delta = ns - *prevIt;
+                *prevIt = ns;
+            }
+            // else: rollback — keep previous, delta stays 0
+
+            perClientDeltaNs[ck] += delta;
+        }
+    }
+
+    flushPid();
 }
 
 // ── One-time discovery: CPU frequency paths ─────────────────

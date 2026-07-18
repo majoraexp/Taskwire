@@ -74,10 +74,25 @@ done
 QT_PLUGIN_DIR=$(qmake6 -query QT_INSTALL_PLUGINS 2>/dev/null || qmake -query QT_INSTALL_PLUGINS)
 cp -r "$QT_PLUGIN_DIR/platforms" "$APPDIR/usr/plugins/"
 
-# Also bundle xcb-related libs that platform plugins need
-for xcblib in libxcb-cursor.so.0 libxcb-xkb.so.1 libxcb-shape.so.0 libxcb-render-util.so.0; do
+# Bundle xcb-related libs that platform plugins need (not caught by binary ldd)
+for xcblib in \
+    libxcb-cursor.so.0 libxcb-xkb.so.1 libxcb-shape.so.0 libxcb-render-util.so.0 \
+    libxcb-render.so.0 libxcb-image.so.0 libxcb-shm.so.0 libxcb-util.so.1; do
     path=$(ldconfig -p | grep "$xcblib" | head -1 | awk '{print $NF}')
     [ -n "$path" ] && [ -f "$path" ] && cp -n "$path" "$APPDIR/usr/lib/" 2>/dev/null || true
+done
+
+# Bundle Wayland support (Qt6WaylandClient + libwayland + plugin subdirs)
+for waylib in libQt6WaylandClient.so.6 libwayland-client.so.0 libwayland-cursor.so.0; do
+    path=$(ldconfig -p | grep "$waylib" | head -1 | awk '{print $NF}')
+    [ -n "$path" ] && [ -f "$path" ] && cp -n "$path" "$APPDIR/usr/lib/" 2>/dev/null || true
+done
+
+# Copy Wayland plugin subdirectories (shell integration, graphics integration)
+for subdir in wayland-decoration-client wayland-graphics-integration-client wayland-shell-integration; do
+    if [ -d "$QT_PLUGIN_DIR/$subdir" ]; then
+        cp -r "$QT_PLUGIN_DIR/$subdir" "$APPDIR/usr/plugins/"
+    fi
 done
 
 echo "Bundled $(ls "$APPDIR/usr/lib/" | wc -l) libraries"

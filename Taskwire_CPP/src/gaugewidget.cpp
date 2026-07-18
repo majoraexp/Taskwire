@@ -41,11 +41,6 @@ ModernGaugeWidget::ModernGaugeWidget(const QString &title,
     m_labelTotalExt->hide();
 }
 
-void ModernGaugeWidget::setColor(const QString &colorHex) {
-    m_color = QColor(colorHex);
-    m_gaugeArea->update();
-}
-
 void ModernGaugeWidget::setSimplePercent(double percent) {
     m_percent = percent;
     m_textLines.clear();

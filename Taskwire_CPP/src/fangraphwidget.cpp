@@ -27,7 +27,8 @@ FanGraphWidget::FanGraphWidget(QWidget *parent)
     m_graphArea->setMinimumHeight(100);
     m_graphArea->setMouseTracking(true);
     m_graphArea->installEventFilter(this);
-    cardLayout()->addWidget(m_graphArea);
+    // stretch=1: graph absorbs extra card height, keeping the legend at the bottom
+    cardLayout()->addWidget(m_graphArea, 1);
 
     // "No Fans Detected" overlay
     m_noDataLabel = new QLabel("No Fans Detected");
@@ -39,9 +40,6 @@ FanGraphWidget::FanGraphWidget(QWidget *parent)
     auto *overlay = new QVBoxLayout(m_graphArea);
     overlay->addWidget(m_noDataLabel);
     overlay->setAlignment(Qt::AlignCenter);
-
-    // Spacer pushes legend to bottom of card
-    cardLayout()->addStretch(1);
 
     // Legend
     m_legendContainer = new QWidget();
@@ -155,6 +153,13 @@ void FanGraphWidget::updateData(const FanStats &stats) {
             m_legendLayout->addWidget(lbl, row, col + 1);
             m_legendCheckBoxes[f.label] = cb;
             m_legendLabels[f.label] = lbl;
+
+            // Legend grows with sensor count: 2 per row, up to 3 rows, then
+            // scrolls (was fixed at one row — clipped and unreachable with 3+ fans)
+            int rows = (m_sensorOrder.size() + 1) / 2;
+            m_legendScroll->setFixedHeight(qMin(rows, 3) * 30);
+            m_legendScroll->setVerticalScrollBarPolicy(
+                rows > 3 ? Qt::ScrollBarAsNeeded : Qt::ScrollBarAlwaysOff);
         } else {
             m_legendLabels[f.label]->setText(displayText);
         }

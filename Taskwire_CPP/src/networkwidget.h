@@ -7,7 +7,6 @@
 #include <QLabel>
 #include <QFont>
 #include <QVector>
-#include <QPoint>
 #include <optional>
 
 class NetworkWidget : public Card {
@@ -42,5 +41,4 @@ private:
     QWidget *m_graphArea;
     GameTooltip *m_tooltip;
     int m_hoverIndex = -1;
-    QPoint m_hoverPos;
 };

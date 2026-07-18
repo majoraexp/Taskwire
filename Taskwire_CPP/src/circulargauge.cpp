@@ -8,6 +8,8 @@
 CircularGauge::CircularGauge(QWidget *parent)
     : QWidget(parent)
 {
+    // Baseline size — MemoryWidget grows this when its card gets extra
+    // height on tall displays; painting scales from a 160×160 design space
     setMinimumSize(160, 160);
     setMaximumSize(160, 160);
     setMouseTracking(true);
@@ -21,13 +23,12 @@ void CircularGauge::setData(double percent, double usedGb, double totalGb) {
 }
 
 void CircularGauge::mouseMoveEvent(QMouseEvent *event) {
-    QRect r = rect();
-    double size = qMin(r.width(), r.height()) - 20.0;
-    double radius = size / 2.0;
-    QPoint center = r.center();
+    // Hover math in the same 160×160 design space the painting uses
+    const double s = qMin(width(), height()) / 160.0;
+    double radius = (160.0 - 20.0) / 2.0;
 
-    double dx = event->pos().x() - center.x();
-    double dy = event->pos().y() - center.y();
+    double dx = event->pos().x() / s - 80.0;
+    double dy = event->pos().y() / s - 80.0;
     double dist = std::sqrt(dx * dx + dy * dy);
 
     if (std::abs(dist - radius) < 15.0) {
@@ -83,7 +84,12 @@ void CircularGauge::paintEvent(QPaintEvent *) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    QRect r = rect();
+    // Drawn in a 160×160 design space, scaled to the actual widget size
+    // so the arcs and text grow together
+    painter.scale(qMin(width(), height()) / 160.0,
+                  qMin(width(), height()) / 160.0);
+
+    QRect r(0, 0, 160, 160);
     double size = qMin(r.width(), r.height()) - 20.0;
     double x = (r.width() - size) / 2.0;
     double y = (r.height() - size) / 2.0;

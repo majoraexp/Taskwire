@@ -203,7 +203,6 @@ bool TempGraphWidget::eventFilter(QObject *watched, QEvent *event) {
             int index = GraphUtils::hoverIndexFromX(me->pos().x(), w, m_maxlen);
 
             m_hoverIndex = index;
-            m_hoverPos = me->pos();
 
             int interval = qMax(1, m_updateInterval);
             int secondsAgo = (m_maxlen - 1 - index) * interval;

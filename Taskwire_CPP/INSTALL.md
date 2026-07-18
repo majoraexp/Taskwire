@@ -11,7 +11,7 @@ chmod +x Taskwire-x86_64.AppImage
 
 No dependencies needed. Works on any Linux distro. ~32 MB.
 
-## Option 2: Native binary (~990 KB)
+## Option 2: Native binary (~871 KB)
 
 Download the `taskwire` binary and install Qt6 from your package manager:
 

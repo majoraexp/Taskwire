@@ -46,7 +46,7 @@ QString ModernTheme::getStylesheet() {
     // Arg mapping:
     //   %1 = appBackground       %2 = textPrimary        %3 = borderColor
     //   %4 = widgetBackground    %5 = textSecondary      %6 = accentPurple
-    //   %7 = alternateTableBg    %8 = accentCyan         %9 = accentBlue
+    //   %7 = alternateTableBg    %8 = accentBlue
     return QString(R"(
 
 /* ── Global rules (safe for all widgets including dashboard) ─── */
@@ -87,14 +87,14 @@ QFrame[class="card"] {
 QScrollArea { background: transparent; border: none; }
 
 QTableWidget, QTableView {
-    selection-background-color: %9; selection-color: white; outline: none;
+    selection-background-color: %8; selection-color: white; outline: none;
 }
 QTableWidget::item, QTableView::item {
     background-color: transparent;
 }
 QTableWidget::item:selected, QTableWidget::item:selected:active, QTableWidget::item:selected:!active,
 QTableView::item:selected, QTableView::item:selected:active, QTableView::item:selected:!active {
-    background-color: %9; color: white;
+    background-color: %8; color: white;
 }
 
 /* ── Menu chrome ─────────────────────────────────────────────── */
@@ -293,7 +293,7 @@ ConnectionsWidget QTableView {
     background-color: %4; alternate-background-color: %7;
     color: %2; gridline-color: %3;
     border: 1px solid %3;
-    selection-background-color: %9; selection-color: white;
+    selection-background-color: %8; selection-color: white;
 }
 
 ProcessListWidget QTableWidget::item,
@@ -311,7 +311,7 @@ ServicesWidget QTableWidget::item:selected,
 ServicesWidget QTableView::item:selected,
 ConnectionsWidget QTableWidget::item:selected,
 ConnectionsWidget QTableView::item:selected {
-    background-color: %9; color: white;
+    background-color: %8; color: white;
 }
 
 /* Headers */
@@ -351,5 +351,5 @@ ConnectionsWidget QTableCornerButton::section {
 
 )").arg(appBackground, textPrimary, borderColor,
         widgetBackground, textSecondary, accentPurple,
-        alternateTableBg, accentCyan, accentBlue);
+        alternateTableBg, accentBlue);
 }

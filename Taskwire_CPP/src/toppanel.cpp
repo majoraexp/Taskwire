@@ -37,10 +37,6 @@ void TopPanelWidget::updateFans(const FanStats &stats) {
     m_fanWidget->updateData(stats);
 }
 
-void TopPanelWidget::setFanDuration(int seconds, int interval) {
-    m_fanWidget->setDuration(seconds, interval);
-}
-
 void TopPanelWidget::refreshTheme() {
     m_cpuGauge->refreshTheme();
     m_gpuGauge->refreshTheme();

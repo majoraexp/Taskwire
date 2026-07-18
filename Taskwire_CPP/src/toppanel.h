@@ -17,7 +17,6 @@ public:
     void updateGpu(const GpuStats &stats);
     void updateFans(const FanStats &stats);
 
-    void setFanDuration(int seconds, int interval = 0);
     void refreshTheme();
 
     ModernGaugeWidget *cpuGauge() const { return m_cpuGauge; }

@@ -21,6 +21,8 @@
 ModernDriveIcon::ModernDriveIcon(QWidget *parent)
     : QAbstractButton(parent)
 {
+    // Baseline size — DiskWidget::updateIconSizes() grows this when the
+    // card gets extra height on tall displays
     setFixedSize(45, 45);
     setCursor(Qt::PointingHandCursor);
 }
@@ -34,8 +36,8 @@ void ModernDriveIcon::paintEvent(QPaintEvent *) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    int w = width();
-    int h = height();
+    // Drawn in a 45×45 design space, scaled up to the actual widget size
+    painter.scale(qMin(width(), height()) / 45.0, qMin(width(), height()) / 45.0);
 
     QColor baseColor(ModernTheme::alternateTableBg);
     QColor highlight(ModernTheme::borderColor);
@@ -88,11 +90,11 @@ void ModernDriveIcon::paintEvent(QPaintEvent *) {
     if (m_active) {
         painter.setBrush(Qt::NoBrush);
         painter.setPen(QPen(accent, 2));
-        painter.drawRoundedRect(2, 2, w - 4, h - 4, 5, 5);
+        painter.drawRoundedRect(2, 2, 41, 41, 5, 5);
     } else if (underMouse()) {
         painter.setBrush(Qt::NoBrush);
         painter.setPen(QPen(QColor(ModernTheme::borderColor), 1));
-        painter.drawRoundedRect(2, 2, w - 4, h - 4, 5, 5);
+        painter.drawRoundedRect(2, 2, 41, 41, 5, 5);
     }
 }
 
@@ -104,20 +106,18 @@ DiskWidget::DiskWidget(QWidget *parent)
     QSettings settings;
     m_selectedPath = settings.value(QStringLiteral("DiskUsage/selectedDrive")).toString();
 
-    auto *iconsWidget = new QWidget();
-    m_iconsLayout = new QHBoxLayout(iconsWidget);
+    // The icons area absorbs the card's extra height on tall displays
+    // (stretch=1) and the icons grow with it via updateIconSizes(), while
+    // the model/bar/value block stays pinned to the bottom as in landscape
+    m_iconsArea = new QWidget();
+    m_iconsLayout = new QHBoxLayout(m_iconsArea);
     m_iconsLayout->setContentsMargins(0, 0, 0, 0);
     m_iconsLayout->setSpacing(10);
-    m_iconsLayout->setAlignment(Qt::AlignLeft);
-    cardLayout()->addWidget(iconsWidget);
+    m_iconsLayout->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_iconsArea->installEventFilter(this);
+    cardLayout()->addWidget(m_iconsArea, 1);
 
     m_modelLabel = new QLabel("Scanning...");
-    {
-        const QString &c = QColor(ModernTheme::appBackground).lightness() > 128
-            ? ModernTheme::accentBlue : ModernTheme::accentCyan;
-        m_modelLabel->setStyleSheet(
-            QStringLiteral("color: %1; font-weight: bold; font-size: 14px;").arg(c));
-    }
     m_modelLabel->setAlignment(Qt::AlignCenter);
     cardLayout()->addWidget(m_modelLabel);
 
@@ -132,17 +132,70 @@ DiskWidget::DiskWidget(QWidget *parent)
     m_valLabel->setAlignment(Qt::AlignCenter);
     cardLayout()->addWidget(m_valLabel);
 
-    cardLayout()->addStretch();
+    applyTextStyles();
+}
+
+// Label fonts scale with the card (see resizeEvent); also reapplied on
+// theme switch since the model label carries a theme color.
+void DiskWidget::applyTextStyles() {
+    const QString &c = QColor(ModernTheme::appBackground).lightness() > 128
+        ? ModernTheme::accentBlue : ModernTheme::accentCyan;
+    m_modelLabel->setStyleSheet(
+        QStringLiteral("color: %1; font-weight: bold; font-size: %2px;")
+            .arg(c)
+            .arg(qRound(14 * m_uiScale)));
+    m_valLabel->setStyleSheet(
+        QStringLiteral("font-size: %1px;").arg(qRound(12 * m_uiScale)));
+}
+
+void DiskWidget::resizeEvent(QResizeEvent *event) {
+    Card::resizeEvent(event);
+    // Scale the label fonts by the same factor the card grew past its
+    // natural height (the icons scale separately via updateIconSizes).
+    // Wait for the icon buttons: the natural hint is meaningless before
+    // they exist, and subtract any icon growth already applied.
+    if (m_buttons.isEmpty())
+        return;
+    if (m_naturalHint <= 0)
+        m_naturalHint = sizeHint().height() - (m_iconSide - 45);
+    // Subtract the icons' growth from the measured height so the font
+    // scale can ratchet back down when moving to a smaller display
+    const double scale = qBound(
+        1.0, double(height() - (m_iconSide - 45)) / qMax(1, m_naturalHint),
+        2.0);
+    if (!qFuzzyCompare(scale, m_uiScale)) {
+        m_uiScale = scale;
+        applyTextStyles();
+    }
+}
+
+bool DiskWidget::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == m_iconsArea && event->type() == QEvent::Resize)
+        updateIconSizes();
+    return Card::eventFilter(watched, event);
+}
+
+// Square icons sized to fill the icons area: grow with its height, but
+// never wider than an even split of its width. 45px is the floor (the
+// landscape baseline size).
+void DiskWidget::updateIconSizes() {
+    const int n = m_buttons.size();
+    if (n == 0)
+        return;
+    const int perIconW = (m_iconsArea->width()
+                          - m_iconsLayout->spacing() * (n - 1)) / n;
+    // Subtract the icons' own growth from the area height: enlarged icons
+    // raise the area's minimum height, which would otherwise keep them
+    // large permanently (ratchet) after moving back to a smaller display.
+    const int availH = m_iconsArea->height() - qMax(0, m_iconSide - 45);
+    m_iconSide = qMax(45, qMin(availH, perIconW));
+    for (auto *btn : std::as_const(m_buttons))
+        btn->setFixedSize(m_iconSide, m_iconSide);
 }
 
 void DiskWidget::refreshTheme() {
     Card::refreshTheme();
-    {
-        const QString &c = QColor(ModernTheme::appBackground).lightness() > 128
-            ? ModernTheme::accentBlue : ModernTheme::accentCyan;
-        m_modelLabel->setStyleSheet(
-            QStringLiteral("color: %1; font-weight: bold; font-size: 14px;").arg(c));
-    }
+    applyTextStyles();
     m_bar->setStyleSheet(
         QStringLiteral("QProgressBar::chunk { background-color: %1; }").arg(ModernTheme::accentOrange));
     for (auto *btn : m_buttons)
@@ -185,6 +238,7 @@ void DiskWidget::updateData(const DiskUsageStats &stats) {
             m_iconsLayout->addWidget(btn);
             m_buttons[path] = btn;
         }
+        updateIconSizes();
 
         // Restore or default selection
         if (currentKeys.contains(m_selectedPath)) {
@@ -367,7 +421,6 @@ bool DiskIOWidget::eventFilter(QObject *watched, QEvent *event) {
             index = qBound(0, index, m_readHistory.size() - 1);
 
             m_hoverIndex = index;
-            m_hoverPos = me->pos();
 
             int interval = qMax(1, m_updateInterval);
             int secondsAgo = (m_maxlen - 1 - index) * interval;

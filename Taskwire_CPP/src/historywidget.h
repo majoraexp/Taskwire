@@ -3,7 +3,6 @@
 #include "base.h"
 #include <QWidget>
 #include <QVector>
-#include <QPoint>
 #include <QColor>
 #include <optional>
 
@@ -43,5 +42,4 @@ private:
     QWidget *m_graphArea;
     GameTooltip *m_tooltip;
     int m_hoverIndex = -1;
-    QPoint m_hoverPos;
 };

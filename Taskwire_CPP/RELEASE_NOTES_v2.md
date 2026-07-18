@@ -3,7 +3,7 @@
 ## Performance
 
 - **~31% lower memory usage** (174 MB vs 253 MB RSS)
-- **98% smaller binary** (990 KB native vs 51 MB Nuitka bundle)
+- **98% smaller binary** (871 KB native vs 51 MB Nuitka bundle)
 - **No Python GIL** — UI thread never blocked by interpreter lock
 - **Direct /proc and /sys parsing** — zero psutil overhead, zero subprocess spawning for CPU/memory/disk IO/network/temps/fans
 - **Faster startup** — no Python interpreter or module import chain

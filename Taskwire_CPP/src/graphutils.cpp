@@ -36,12 +36,6 @@ int hoverIndexFromX(int x, int width, int maxlen, int leftMargin) {
     return qBound(0, index, maxlen - 1);
 }
 
-double xFromIndex(int index, int width, int maxlen, int leftMargin) {
-    if (maxlen <= 1) return leftMargin;
-    double stepX = (double)(width - leftMargin) / (maxlen - 1);
-    return leftMargin + index * stepX;
-}
-
 double yFromValue(double value, double minVal, double maxVal, int topMargin, int graphH) {
     if (maxVal <= minVal) return topMargin + graphH;
     double normalized = (value - minVal) / (maxVal - minVal);

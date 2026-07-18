@@ -5,7 +5,9 @@ CpuWidget::CpuWidget(QWidget *parent)
     : Card("CPU Utilization (Per Thread)", parent)
 {
     m_grid = new QGridLayout();
-    cardLayout()->addLayout(m_grid);
+    // stretch=1: the grid takes all extra card height (title stays at the
+    // top) and spreads its core rows evenly to fill it on tall displays
+    cardLayout()->addLayout(m_grid, 1);
 }
 
 void CpuWidget::refreshTheme() {
@@ -41,7 +43,8 @@ void CpuWidget::updateData(const CpuStats &stats) {
 
             row.nameLabel = new QLabel(QStringLiteral("Core %1").arg(i + 1));
             row.nameLabel->setStyleSheet(
-                QStringLiteral("color: %1; font-size: 11px;").arg(ModernTheme::textSecondary));
+                QStringLiteral("color: %1; font-size: 11px; font-weight: bold;")
+                    .arg(ModernTheme::textPrimary));
 
             row.bar = new QProgressBar();
             row.bar->setRange(0, 100);
@@ -57,7 +60,7 @@ void CpuWidget::updateData(const CpuStats &stats) {
 
             row.freqLabel = new QLabel("0 MHz");
             row.freqLabel->setStyleSheet(
-                QStringLiteral("color: %1; font-size: 10px;").arg(
+                QStringLiteral("color: %1; font-size: 10px; font-weight: bold;").arg(
                     lightMode ? ModernTheme::accentBlue : ModernTheme::accentCyan));
             row.freqLabel->setAlignment(Qt::AlignRight);
 
@@ -71,7 +74,9 @@ void CpuWidget::updateData(const CpuStats &stats) {
             int baseCol = colGroup * 5; // 4 widgets + 1 spacer
 
             m_grid->addWidget(row.nameLabel, gridRow, baseCol);
-            m_grid->addWidget(row.bar, gridRow, baseCol + 1);
+            // AlignVCenter lifts the fixed-height bar's cap on the row's
+            // maximum height, letting rows spread out on tall displays
+            m_grid->addWidget(row.bar, gridRow, baseCol + 1, Qt::AlignVCenter);
             m_grid->addWidget(row.freqLabel, gridRow, baseCol + 2);
             m_grid->addWidget(row.valueLabel, gridRow, baseCol + 3);
 

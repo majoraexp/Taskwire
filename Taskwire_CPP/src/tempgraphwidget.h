@@ -11,7 +11,6 @@
 #include <QVector>
 #include <QHash>
 #include <QColor>
-#include <QPoint>
 #include <optional>
 
 class TempGraphWidget : public Card {
@@ -54,5 +53,4 @@ private:
 
     GameTooltip *m_tooltip;
     int m_hoverIndex = -1;
-    QPoint m_hoverPos;
 };

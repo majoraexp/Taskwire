@@ -1,6 +1,7 @@
 #include "connectionswidget.h"
 #include "base.h"
 #include "styles.h"
+#include "filterutils.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -76,7 +77,7 @@ ConnectionsWidget::ConnectionsWidget(QWidget *parent)
 
     // Search
     m_searchInput = new QLineEdit();
-    m_searchInput->setPlaceholderText(QStringLiteral("Search connections..."));
+    m_searchInput->setPlaceholderText(QStringLiteral("Search connections... (use * for wildcard)"));
     connect(m_searchInput, &QLineEdit::textChanged, this, &ConnectionsWidget::onSearchChanged);
     toolbar->addWidget(m_searchInput, 1);
 
@@ -137,17 +138,11 @@ ConnectionsWidget::ConnectionsWidget(QWidget *parent)
 
     // Column sizing — Interactive + fixed widths (no ResizeToContents)
     auto *h = m_table->horizontalHeader();
-    h->setSectionResizeMode(0, QHeaderView::Interactive);   // Protocol
-    h->setSectionResizeMode(1, QHeaderView::Interactive);   // State
-    h->setSectionResizeMode(2, QHeaderView::Stretch);       // Local Address
-    h->setSectionResizeMode(3, QHeaderView::Interactive);   // Port
-    h->setSectionResizeMode(4, QHeaderView::Stretch);       // Peer Address
-    h->setSectionResizeMode(5, QHeaderView::Interactive);   // Peer Port
-    h->setSectionResizeMode(6, QHeaderView::Interactive);   // Process
-    h->setSectionResizeMode(7, QHeaderView::Interactive);   // PID
     h->resizeSection(0, 70);   // Protocol
     h->resizeSection(1, 100);  // State
+    h->resizeSection(2, 250);  // Local Address
     h->resizeSection(3, 60);   // Port
+    h->resizeSection(4, 250);  // Peer Address
     h->resizeSection(5, 70);   // Peer Port
     h->resizeSection(6, 120);  // Process
     h->resizeSection(7, 60);   // PID
@@ -300,8 +295,6 @@ void ConnectionsWidget::populateTable() {
     QVector<const ConnectionInfo *> filtered;
     filtered.reserve(m_connections.size());
 
-    const QString ft = m_filterText.toLower();
-
     for (const auto &c : m_connections) {
         // Protocol filter
         if (m_protoFilter != QStringLiteral("All")) {
@@ -313,16 +306,16 @@ void ConnectionsWidget::populateTable() {
             if (c.state != m_stateFilter)
                 continue;
         }
-        // Text search (any field)
-        if (!ft.isEmpty()) {
-            bool found = c.proto.toLower().contains(ft)
-                      || c.state.toLower().contains(ft)
-                      || c.localAddr.toLower().contains(ft)
-                      || c.localPort.toLower().contains(ft)
-                      || c.peerAddr.toLower().contains(ft)
-                      || c.peerPort.toLower().contains(ft)
-                      || c.process.toLower().contains(ft)
-                      || QString::number(c.pid).contains(ft);
+        // Text search with wildcard support (any field)
+        if (!m_filterText.isEmpty()) {
+            bool found = FilterUtils::matchesFilter(c.proto, m_filterText)
+                      || FilterUtils::matchesFilter(c.state, m_filterText)
+                      || FilterUtils::matchesFilter(c.localAddr, m_filterText)
+                      || FilterUtils::matchesFilter(c.localPort, m_filterText)
+                      || FilterUtils::matchesFilter(c.peerAddr, m_filterText)
+                      || FilterUtils::matchesFilter(c.peerPort, m_filterText)
+                      || FilterUtils::matchesFilter(c.process, m_filterText)
+                      || FilterUtils::matchesFilter(QString::number(c.pid), m_filterText);
             if (!found) continue;
         }
         filtered.append(&c);

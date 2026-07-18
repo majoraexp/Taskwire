@@ -44,6 +44,7 @@ private:
 
     // Data
     QVector<ProcessInfo> m_processData;
+    quint64 m_gpuPollElapsedNs = 0;
 
     // UI
     QTableWidget *m_groupTable;

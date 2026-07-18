@@ -1,6 +1,7 @@
 #include "serviceswidget.h"
 #include "base.h"
 #include "styles.h"
+#include "filterutils.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -55,7 +56,7 @@ ServicesWidget::ServicesWidget(QWidget *parent)
     auto *toolbar = new QHBoxLayout();
 
     m_searchInput = new QLineEdit(this);
-    m_searchInput->setPlaceholderText(QStringLiteral("Search services..."));
+    m_searchInput->setPlaceholderText(QStringLiteral("Search services... (use * for wildcard)"));
     connect(m_searchInput, &QLineEdit::textChanged, this, &ServicesWidget::onSearchChanged);
     toolbar->addWidget(m_searchInput, 1);
 
@@ -118,11 +119,8 @@ ServicesWidget::ServicesWidget(QWidget *parent)
     connect(hdr, &QHeaderView::sectionClicked, this, &ServicesWidget::onHeaderClicked);
 
     auto *h = m_table->horizontalHeader();
-    h->setSectionResizeMode(0, QHeaderView::Interactive);
-    h->setSectionResizeMode(1, QHeaderView::Stretch);
-    h->setSectionResizeMode(2, QHeaderView::Interactive);
-    h->setSectionResizeMode(3, QHeaderView::Interactive);
-    h->setSectionResizeMode(4, QHeaderView::Interactive);
+    h->resizeSection(0, 250);  // Service
+    h->resizeSection(1, 400);  // Description
     h->resizeSection(2, 80);   // Active
     h->resizeSection(3, 90);   // Sub-State
     h->resizeSection(4, 80);   // Enabled
@@ -143,7 +141,7 @@ ServicesWidget::ServicesWidget(QWidget *parent)
         QStringLiteral("color: %1; font-size: 12px;").arg(ModernTheme::textSecondary));
     mainLayout->addWidget(m_statusLabel);
 
-    // ── Auto-refresh timer (5s) ─────────────────────────────
+    // ── Auto-refresh timer (30s) ────────────────────────────
     m_refreshTimer = new QTimer(this);
     connect(m_refreshTimer, &QTimer::timeout, this, &ServicesWidget::refreshServices);
     m_refreshTimer->start(30000);
@@ -338,11 +336,10 @@ void ServicesWidget::populateTable() {
             if (svc.activeState != sf)
                 continue;
         }
-        // Text filter
+        // Text filter (supports wildcard *)
         if (!m_filterText.isEmpty()) {
-            auto ft = m_filterText.toLower();
-            if (!svc.name.toLower().contains(ft) &&
-                !svc.description.toLower().contains(ft))
+            if (!FilterUtils::matchesFilter(svc.name, m_filterText) &&
+                !FilterUtils::matchesFilter(svc.description, m_filterText))
                 continue;
         }
         filtered.append(&svc);

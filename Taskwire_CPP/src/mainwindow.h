@@ -18,6 +18,7 @@ class QTabWidget;
 class QThread;
 class QActionGroup;
 class QLabel;
+class QVBoxLayout;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -44,8 +45,10 @@ private slots:
 private:
     void createMenu();
     QWidget* createDashboardTab();
+    void updateDashboardStretch();
 
     QTabWidget *m_tabs;
+    QVBoxLayout *m_dashLayout = nullptr;
 
     // Process tab
     ProcessListWidget *m_processWidget;
@@ -79,6 +82,9 @@ private:
 
     // Graph duration
     QActionGroup *m_durationGroup;
+
+    // Auto-sized default window size (startup correction pass checks this)
+    QSize m_autoSize;
 
     // Worker thread
     QThread *m_workerThread;

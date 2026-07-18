@@ -7,6 +7,7 @@
 #include <QBrush>
 #include <QFontMetrics>
 #include <QMouseEvent>
+#include <QResizeEvent>
 #include <QSizePolicy>
 
 // ── MemoryAllocationBar ─────────────────────────────────────
@@ -39,6 +40,17 @@ MemoryAllocationBar::MemoryAllocationBar(QWidget *parent)
     setMaximumHeight(totalH);
 }
 
+void MemoryAllocationBar::setUiScale(double scale) {
+    if (qFuzzyCompare(scale, m_scale))
+        return;
+    m_scale = scale;
+    m_legendFont.setPointSizeF(8 * scale);
+    const int totalH = barH() + qRound(LEGEND_H * m_scale);
+    setMinimumHeight(totalH);
+    setMaximumHeight(totalH);
+    update();
+}
+
 void MemoryAllocationBar::setData(long long total, long long used,
                                    long long buffers, long long cached,
                                    long long free) {
@@ -66,7 +78,7 @@ void MemoryAllocationBar::mouseMoveEvent(QMouseEvent *event) {
     auto ws = segmentWidths();
 
     // Only trigger hover on the bar itself, not the legend area below
-    if (py <= BAR_H) {
+    if (py <= barH()) {
         for (int i = 0; i < 4; ++i) {
             if (px >= x && px < x + ws[i]) {
                 newHover = i;
@@ -111,14 +123,14 @@ void MemoryAllocationBar::paintEvent(QPaintEvent *) {
 
     // Clip to rounded bar shape
     QPainterPath clip;
-    clip.addRoundedRect(QRectF(0, 0, r.width(), BAR_H), 4, 4);
+    clip.addRoundedRect(QRectF(0, 0, r.width(), barH()), 4, 4);
     painter.save();
     painter.setClipPath(clip);
 
     // Background
     painter.setPen(Qt::NoPen);
     painter.setBrush(QColor(ModernTheme::alternateTableBg));
-    painter.drawRect(QRectF(0, 0, r.width(), BAR_H));
+    painter.drawRect(QRectF(0, 0, r.width(), barH()));
 
     // Segments
     double x = 0.0;
@@ -131,7 +143,7 @@ void MemoryAllocationBar::paintEvent(QPaintEvent *) {
 
         painter.setPen(Qt::NoPen);
         painter.setBrush(color);
-        painter.drawRect(QRectF(x, 0, ws[i], BAR_H));
+        painter.drawRect(QRectF(x, 0, ws[i], barH()));
         x += ws[i];
     }
 
@@ -140,7 +152,7 @@ void MemoryAllocationBar::paintEvent(QPaintEvent *) {
     // 2x2 legend below the bar
     painter.setFont(m_legendFont);
     QFontMetrics fm(m_legendFont);
-    int top = BAR_H + 5;
+    int top = barH() + qRound(5 * m_scale);
 
     for (int i = 0; i < 4; ++i) {
         double pct = (m_segments[i].value / (double)m_total) * 100.0;
@@ -151,13 +163,17 @@ void MemoryAllocationBar::paintEvent(QPaintEvent *) {
         int col = i % 2;
         int row = i / 2;
 
-        // Left-align col 0, right-align col 1
+        const double dot = 6 * m_scale;
+        const int textGap = qRound(9 * m_scale);
+
+        // Left-align col 0, right-align col 1 (small right margin so the
+        // trailing "%" glyph isn't clipped at the widget edge)
         int lx;
         if (col == 0) {
             lx = 0;
         } else {
             int textWidth = fm.horizontalAdvance(text);
-            lx = r.width() - (9 + textWidth);
+            lx = r.width() - (textGap + textWidth) - 5;
         }
 
         int ly = top + row * (fm.height() + 2);
@@ -166,12 +182,12 @@ void MemoryAllocationBar::paintEvent(QPaintEvent *) {
         // Color dot
         painter.setPen(Qt::NoPen);
         painter.setBrush(color);
-        double dotY = ly + (fm.height() - 6) / 2.0;
-        painter.drawEllipse(QRectF(lx, dotY, 6, 6));
+        double dotY = ly + (fm.height() - dot) / 2.0;
+        painter.drawEllipse(QRectF(lx, dotY, dot, dot));
 
         // Label text
         painter.setPen(QColor(ModernTheme::textPrimary));
-        painter.drawText(lx + 9, ly + fm.ascent(), text);
+        painter.drawText(lx + textGap, ly + fm.ascent(), text);
     }
 }
 
@@ -182,10 +198,13 @@ MemoryWidget::MemoryWidget(QWidget *parent)
 {
     setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
 
+    // Stretches around the gauge block center it in the extra height on
+    // tall displays, while the allocation bar stays pinned to the bottom
+    // (same placement as the landscape layout)
+    cardLayout()->insertStretch(2, 1);
+
     m_usedLabelTop = new QLabel("Used Physical Memory");
     m_usedLabelTop->setAlignment(Qt::AlignCenter);
-    m_usedLabelTop->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 11px;").arg(ModernTheme::textPrimary));
     cardLayout()->addWidget(m_usedLabelTop);
 
     m_gauge = new CircularGauge();
@@ -193,28 +212,70 @@ MemoryWidget::MemoryWidget(QWidget *parent)
 
     m_totalLabelBottom = new QLabel("");
     m_totalLabelBottom->setAlignment(Qt::AlignCenter);
-    m_totalLabelBottom->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 11px;").arg(ModernTheme::textPrimary));
     cardLayout()->addWidget(m_totalLabelBottom);
+
+    cardLayout()->addStretch(1);
 
     m_allocLabel = new QLabel("Memory Allocation");
     m_allocLabel->setAlignment(Qt::AlignCenter);
-    m_allocLabel->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 10px; margin-top: 6px;").arg(ModernTheme::textSecondary));
     cardLayout()->addWidget(m_allocLabel);
 
     m_allocBar = new MemoryAllocationBar();
     cardLayout()->addWidget(m_allocBar);
+
+    applyLabelStyles();
+}
+
+// Label fonts scale with the card (see resizeEvent); also reapplied on
+// theme switch since the stylesheets carry theme colors.
+void MemoryWidget::applyLabelStyles() {
+    const QString capStyle =
+        QStringLiteral("color: %1; font-size: %2px;")
+            .arg(ModernTheme::textPrimary)
+            .arg(qRound(11 * m_uiScale));
+    m_usedLabelTop->setStyleSheet(capStyle);
+    m_totalLabelBottom->setStyleSheet(capStyle);
+    m_allocLabel->setStyleSheet(
+        QStringLiteral("color: %1; font-size: %2px; margin-top: 6px;")
+            .arg(ModernTheme::textSecondary)
+            .arg(qRound(10 * m_uiScale)));
+}
+
+void MemoryWidget::resizeEvent(QResizeEvent *event) {
+    Card::resizeEvent(event);
+    // Grow the gauge and label fonts by the same factor the card grew past
+    // its natural height, so they scale like the graph areas do on tall
+    // displays. The baseline hint is captured on first resize, before any
+    // scaling has inflated sizeHint().
+    if (m_naturalHint <= 0)
+        m_naturalHint = sizeHint().height();
+    // Subtract our own growth (enlarged gauge + allocation bar) from the
+    // measured height: it raises the card's minimum size, which would
+    // otherwise hold the scale up permanently (ratchet) after moving back
+    // to a smaller landscape display.
+    const int selfGrowth = (m_gaugeSide - 160)
+        + qMax(0, m_allocBar->minimumHeight() - m_allocBar->naturalHeight());
+    const double scale = qBound(
+        1.0, double(height() - selfGrowth) / qMax(1, m_naturalHint), 2.0);
+
+    const int side = qRound(160 * scale);
+    if (side != m_gaugeSide) {
+        m_gaugeSide = side;
+        m_gauge->setFixedSize(side, side);
+    }
+    // Text scales more gently than the gauge so the captions and the
+    // allocation legend don't outgrow the card's width
+    const double fontScale = 1.0 + (scale - 1.0) * 0.6;
+    if (!qFuzzyCompare(fontScale, m_uiScale)) {
+        m_uiScale = fontScale;
+        applyLabelStyles();
+        m_allocBar->setUiScale(fontScale);
+    }
 }
 
 void MemoryWidget::refreshTheme() {
     Card::refreshTheme();
-    m_usedLabelTop->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 11px;").arg(ModernTheme::textPrimary));
-    m_totalLabelBottom->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 11px;").arg(ModernTheme::textPrimary));
-    m_allocLabel->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 10px; margin-top: 6px;").arg(ModernTheme::textSecondary));
+    applyLabelStyles();
     m_gauge->update();
     m_allocBar->update();
 }

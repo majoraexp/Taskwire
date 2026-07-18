@@ -19,7 +19,6 @@ public:
                                const QString &colorHex = {},
                                QWidget *parent = nullptr);
 
-    void setColor(const QString &colorHex);
     void setSimplePercent(double percent);
     void setDetailedData(double percent, double used, double total,
                          const QString &unit = QStringLiteral("GiB"),

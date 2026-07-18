@@ -13,7 +13,6 @@
 #include <QTimer>
 #include <QDir>
 #include <QFile>
-#include <QTextStream>
 
 // ── Embedded caps_control.sh ────────────────────────────────
 // Avoids dependency on external script file in binary builds.

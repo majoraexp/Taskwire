@@ -1,9 +1,17 @@
 cmake_minimum_required(VERSION 3.16)
-project(Taskwire VERSION 1.0.0 LANGUAGES CXX)
+project(Taskwire VERSION 2.0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# Build as PIE — required for hardened distros (CachyOS, etc.) where Qt6 uses
+# GNU_PROPERTY_1_NEEDED_INDIRECT_EXTERN_ACCESS and rejects copy relocations
+cmake_policy(SET CMP0083 NEW)
+include(CheckPIESupported)
+check_pie_supported()
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
 
@@ -29,6 +37,26 @@ add_executable(taskwire
     src/connectionswidget.cpp
     src/journalwidget.cpp
     src/toolswidget.cpp
+    resources.qrc
+)
+
+set_target_properties(taskwire PROPERTIES
+    POSITION_INDEPENDENT_CODE TRUE
+)
+
+# Prevent copy relocations against Qt6 protected symbols — required for
+# Arch-based distros (CachyOS, etc.) where Qt6 is built with indirect
+# extern access. Without this, staticMetaObject references generate
+# R_X86_64_COPY relocations that the dynamic loader rejects at startup.
+target_compile_options(taskwire PRIVATE
+    $<$<AND:$<PLATFORM_ID:Linux>,$<CXX_COMPILER_ID:GNU>>:
+        -mno-direct-extern-access
+    >
+)
+target_link_options(taskwire PRIVATE
+    $<$<AND:$<PLATFORM_ID:Linux>,$<CXX_COMPILER_ID:GNU>>:
+        -Wl,-z,indirect-extern-access
+    >
 )
 
 target_link_libraries(taskwire PRIVATE

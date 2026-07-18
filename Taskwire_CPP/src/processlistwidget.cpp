@@ -1,6 +1,7 @@
 #include "processlistwidget.h"
 #include "styles.h"
 #include "graphutils.h"
+#include "filterutils.h"
 
 #include <QTableWidget>
 #include <QStackedWidget>
@@ -23,6 +24,7 @@
 #include <errno.h>
 
 #include <algorithm>
+#include <climits>
 #include <functional>
 
 // ── Constructor ─────────────────────────────────────────────
@@ -32,15 +34,16 @@ ProcessListWidget::ProcessListWidget(QWidget *parent)
 {
     // Column definitions: id, label, availableGrouped, availableDetail
     m_columnDefs = {
-        {QStringLiteral("pid"),         QStringLiteral("PID"),            false, true},
+        {QStringLiteral("pid"),         QStringLiteral("PID"),            true,  true},
         {QStringLiteral("name"),        QStringLiteral("Name"),           true,  true},
         {QStringLiteral("ppid"),        QStringLiteral("PPID"),           false, true},
         {QStringLiteral("count"),       QStringLiteral("Count"),          true,  false},
         {QStringLiteral("cpu"),         QStringLiteral("CPU %"),          true,  true},
+        {QStringLiteral("gpu"),         QStringLiteral("GPU %"),          true,  true},
         {QStringLiteral("mem"),         QStringLiteral("Memory %"),       true,  true},
-        {QStringLiteral("mem_mb"),      QStringLiteral("Resident (MB)"),  true,  true},
-        {QStringLiteral("mem_shared"),  QStringLiteral("Shared (MB)"),    true,  true},
-        {QStringLiteral("mem_swap"),    QStringLiteral("Swap (MB)"),      true,  true},
+        {QStringLiteral("mem_mb"),      QStringLiteral("Resident"),       true,  true},
+        {QStringLiteral("mem_shared"),  QStringLiteral("Shared"),         true,  true},
+        {QStringLiteral("mem_swap"),    QStringLiteral("Swap"),           true,  true},
         {QStringLiteral("read_bytes"),  QStringLiteral("Read Bytes"),     true,  true},
         {QStringLiteral("write_bytes"), QStringLiteral("Write Bytes"),    true,  true},
         {QStringLiteral("threads"),     QStringLiteral("Threads"),        true,  true},
@@ -49,30 +52,39 @@ ProcessListWidget::ProcessListWidget(QWidget *parent)
     };
 
     m_visibleGrouped = {
-        QStringLiteral("name"), QStringLiteral("cpu"), QStringLiteral("mem"),
-        QStringLiteral("mem_mb"), QStringLiteral("mem_swap"), QStringLiteral("count")
+        QStringLiteral("name"), QStringLiteral("cpu"), QStringLiteral("gpu"),
+        QStringLiteral("mem"), QStringLiteral("mem_mb"), QStringLiteral("mem_swap"),
+        QStringLiteral("count")
     };
     m_visibleDetail = {
         QStringLiteral("pid"), QStringLiteral("name"), QStringLiteral("cpu"),
-        QStringLiteral("mem"), QStringLiteral("mem_mb"), QStringLiteral("mem_shared"),
-        QStringLiteral("mem_swap")
+        QStringLiteral("gpu"), QStringLiteral("mem"), QStringLiteral("mem_mb"),
+        QStringLiteral("mem_shared"), QStringLiteral("mem_swap")
     };
 
     // Load persisted column selections (override defaults if saved)
     {
         QSettings settings;
         QStringList saved = settings.value(QStringLiteral("ProcessColumns/grouped")).toStringList();
-        if (!saved.isEmpty()) m_visibleGrouped = QVector<QString>(saved.begin(), saved.end());
+        if (!saved.isEmpty()) {
+            if (!saved.contains(QStringLiteral("gpu")))
+                saved.append(QStringLiteral("gpu"));
+            m_visibleGrouped = QVector<QString>(saved.begin(), saved.end());
+        }
 
         saved = settings.value(QStringLiteral("ProcessColumns/detail")).toStringList();
-        if (!saved.isEmpty()) m_visibleDetail = QVector<QString>(saved.begin(), saved.end());
+        if (!saved.isEmpty()) {
+            if (!saved.contains(QStringLiteral("gpu")))
+                saved.append(QStringLiteral("gpu"));
+            m_visibleDetail = QVector<QString>(saved.begin(), saved.end());
+        }
     }
 
     // Action bar
     auto *actionLayout = new QHBoxLayout();
 
     m_searchInput = new QLineEdit(this);
-    m_searchInput->setPlaceholderText(QStringLiteral("Search Process..."));
+    m_searchInput->setPlaceholderText(QStringLiteral("Search Process... (use * for wildcard)"));
     connect(m_searchInput, &QLineEdit::textChanged, this, &ProcessListWidget::onSearchChanged);
     actionLayout->addWidget(m_searchInput);
 
@@ -293,7 +305,7 @@ void ProcessListWidget::openColumnDialog(ViewMode mode) {
 // ── Search / Filter ─────────────────────────────────────────
 
 void ProcessListWidget::onSearchChanged(const QString &text) {
-    m_filterText = text.toLower();
+    m_filterText = text;
     refreshCurrentView();
 }
 
@@ -323,6 +335,7 @@ void ProcessListWidget::switchToDetails(const QString &filterName) {
 
 void ProcessListWidget::updateData(const ProcessStats &stats) {
     m_processData = stats.processes;
+    m_gpuPollElapsedNs = stats.gpuPollElapsedNs;
     refreshCurrentView();
 }
 
@@ -347,6 +360,7 @@ static bool isNumericColumn(const QString &colId) {
 void ProcessListWidget::updateGroupedTable(bool maintainSelection) {
     struct GroupedStats {
         int count = 0;
+        int parentPid = INT_MAX;
         double cpuPercent = 0.0;
         double memoryPercent = 0.0;
         long long rssBytes = 0;
@@ -355,16 +369,19 @@ void ProcessListWidget::updateGroupedTable(bool maintainSelection) {
         long long readBytes = 0;
         long long writeBytes = 0;
         int numThreads = 0;
+        QHash<QString, quint64> gpuDeltaByClient; // max delta per unique client
     };
 
     QHash<QString, GroupedStats> groups;
 
     for (const auto &p : m_processData) {
-        if (!m_filterText.isEmpty() && !p.name.toLower().contains(m_filterText))
+        if (!m_filterText.isEmpty() && !FilterUtils::matchesFilter(p.name, m_filterText))
             continue;
 
         auto &s = groups[p.name];
         s.count++;
+        if (p.pid < s.parentPid)
+            s.parentPid = p.pid;
         s.cpuPercent += p.cpuPercent;
         s.memoryPercent += p.memoryPercent;
         s.rssBytes += p.rssBytes;
@@ -373,14 +390,32 @@ void ProcessListWidget::updateGroupedTable(bool maintainSelection) {
         s.readBytes += p.readBytes;
         s.writeBytes += p.writeBytes;
         s.numThreads += p.numThreads;
+
+        for (const auto &c : p.gpuClientDeltas) {
+            QString k = c.driver + QLatin1Char('|') + c.pdev + QLatin1Char('|')
+                        + QString::number(c.clientId);
+            auto git = s.gpuDeltaByClient.find(k);
+            if (git == s.gpuDeltaByClient.end() || c.deltaNs > *git)
+                s.gpuDeltaByClient[k] = c.deltaNs;
+        }
     }
 
     QVector<RowData> displayData;
     for (auto it = groups.cbegin(); it != groups.cend(); ++it) {
+        quint64 gpuUniqueDeltaNs = 0;
+        for (quint64 d : it->gpuDeltaByClient)
+            gpuUniqueDeltaNs += d;
+        double groupedGpu = (m_gpuPollElapsedNs > 0)
+            ? std::clamp(static_cast<double>(gpuUniqueDeltaNs)
+                         / static_cast<double>(m_gpuPollElapsedNs) * 100.0, 0.0, 100.0)
+            : 0.0;
+
         RowData row;
+        row[QStringLiteral("pid")] = it->parentPid;
         row[QStringLiteral("name")] = it.key();
         row[QStringLiteral("count")] = it->count;
         row[QStringLiteral("cpu")] = it->cpuPercent;
+        row[QStringLiteral("gpu")] = groupedGpu;
         row[QStringLiteral("mem")] = it->memoryPercent;
         row[QStringLiteral("mem_mb")] = it->rssBytes;
         row[QStringLiteral("mem_shared")] = it->sharedBytes;
@@ -415,7 +450,7 @@ void ProcessListWidget::updateDetailTable(bool maintainSelection) {
     QVector<RowData> displayData;
 
     for (const auto &p : m_processData) {
-        if (!m_filterText.isEmpty() && !p.name.toLower().contains(m_filterText))
+        if (!m_filterText.isEmpty() && !FilterUtils::matchesFilter(p.name, m_filterText))
             continue;
 
         RowData row;
@@ -423,6 +458,7 @@ void ProcessListWidget::updateDetailTable(bool maintainSelection) {
         row[QStringLiteral("name")] = p.name;
         row[QStringLiteral("ppid")] = p.ppid;
         row[QStringLiteral("cpu")] = p.cpuPercent;
+        row[QStringLiteral("gpu")] = p.gpuPercent;
         row[QStringLiteral("mem")] = p.memoryPercent;
         row[QStringLiteral("mem_mb")] = p.rssBytes;
         row[QStringLiteral("mem_shared")] = p.sharedBytes;
@@ -472,7 +508,8 @@ QString ProcessListWidget::formatCellDisplay(const QString &colId, const QVarian
         colId == QLatin1String("status"))
         return val.toString();
 
-    if (colId == QLatin1String("cpu") || colId == QLatin1String("mem"))
+    if (colId == QLatin1String("cpu") || colId == QLatin1String("mem") ||
+        colId == QLatin1String("gpu"))
         return QStringLiteral("%1%").arg(val.toDouble(), 0, 'f', 1);
 
     if (colId == QLatin1String("mem_mb") || colId == QLatin1String("mem_shared") ||
@@ -887,14 +924,14 @@ bool ProcessListWidget::forceKillPids(const QVector<int> &pids, bool silent) {
         return false;
     }
 
-    QString stderr = QString::fromUtf8(proc.readAllStandardError()).trimmed();
-    if (stderr.contains(QStringLiteral("No such process"), Qt::CaseInsensitive)) {
+    QString errOutput = QString::fromUtf8(proc.readAllStandardError()).trimmed();
+    if (errOutput.contains(QStringLiteral("No such process"), Qt::CaseInsensitive)) {
         if (!silent)
             QMessageBox::warning(this, QStringLiteral("Error"),
                                  QStringLiteral("Process no longer exists."));
     } else if (!silent) {
         QMessageBox::critical(this, QStringLiteral("Error"),
-            QStringLiteral("Failed to kill process(es).\n%1").arg(stderr));
+            QStringLiteral("Failed to kill process(es).\n%1").arg(errOutput));
     }
     return false;
 }
