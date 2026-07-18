@@ -12,21 +12,21 @@
 
 > **📥 [Download the latest release (AppImage or native binary)](https://github.com/majoraexp/Taskwire/releases)** — No dependencies needed for AppImage!
 
-![Taskwire Dashboard](taskwire_2.0_dashboard.png)
+![Taskwire Dashboard](taskwire_2.0.1_dashboard.png)
 
-![Taskwire Processes](taskwire_2.0_processes_tab.png)
+![Taskwire Processes](taskwire_2.0.1_processes_tab.png)
 *Process Manager with grouped view, sortable columns, and Force Kill (Admin).*
 
-![Taskwire Services](taskwire_2.0_services_tab.png)
+![Taskwire Services](taskwire_2.0.1_services_tab.png)
 *Systemd Services Manager — list, search, and control all services.*
 
-![Taskwire Connections](taskwire_2.0_connections_tab.png)
+![Taskwire Connections](taskwire_2.0.1_connections_tab.png)
 *Active Connections viewer — all TCP/UDP sockets with owning processes.*
 
-![Taskwire Logs](taskwire_2.0_logs_tab.png)
+![Taskwire Logs](taskwire_2.0.1_logs_tab.png)
 *Live System Log Viewer — real-time journalctl streaming with filters and search.*
 
-![Taskwire Tools](taskwire_2.0_tools_tab.png)
+![Taskwire Tools](taskwire_2.0.1_tools_tab.png)
 *System Tools — Caps Lock toggle and more.*
 
 ## Why I Made Taskwire / How to Use It
